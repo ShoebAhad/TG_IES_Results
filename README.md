@@ -17,7 +17,7 @@ year={2025}
 ```
 
 ### Experiments
-You should put the [CIFAR datasets](https://www.cs.toronto.edu/~kriz/cifar.html) in the folder `.\cifar-10` and `.\cifar-100` when you have downloaded them.
+You should put the [CIFAR datasets](https://www.cs.toronto.edu/~kriz/cifar.html) in the folder `.\cifar-10` and `.\cifar-100` if you have downloaded them.
 
 To run the CIFAR-10 example with IES, run the following:
 ```bash
