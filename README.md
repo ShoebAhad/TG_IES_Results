@@ -27,15 +27,4 @@ python3 train.py --method ies_shipped --dataset cifar10 --model resnet18 --seed 
 ```
 Each run writes `results/<method>_<dataset>_<model>_<optimizer>_seed<k>.csv`, one row per epoch (test accuracy, cumulative backprop instances, and — for `tgies` — the recalibrated `delta`/`K*`). See `run_matrix.sh` and `NEXT_STEPS.md` for the full experiment matrix and how each reported number in the paper was produced.
 
-### Citation
-This project builds directly on the original IES codebase and paper:
-```bibtex
-@inproceedings{
-yuan2025instancedependent,
-title={Instance-dependent Early Stopping},
-author={Suqin Yuan and Runqi Lin and Lei Feng and Bo Han and Tongliang Liu},
-booktitle={The Thirteenth International Conference on Learning Representations},
-year={2025}
-}
-```
-Original IES code: [github.com/tmllab/2025_ICLR_IES](https://github.com/tmllab/2025_ICLR_IES). Original authors: <a href="https://suqinyuan.github.io">Suqin Yuan</a>, <a href="https://runqilin.github.io">Runqi Lin</a>, <a href="https://lfeng1995.github.io">Lei Feng</a>, <a href="https://bhanml.github.io">Bo Han</a>, <a href="https://tongliang-liu.github.io">Tongliang Liu</a>.
+
