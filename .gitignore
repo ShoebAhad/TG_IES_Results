@@ -1,0 +1,42 @@
+# Raw datasets (downloaded by the training code itself; not vendored)
+cifar-10/
+cifar-100/
+
+# Reference trajectory checkpoints for the K*-sweep (large .pt files, ~1.3GB;
+# not needed to reproduce reported numbers, only to re-derive trajectory-divergence plots)
+traj_ref/
+checkpoints/
+il_cache/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Scratch / exploratory outputs, not part of any reported result
+_batch_size_sweep_scratch/
+scratch_verify2/
+
+# Redundant zipped bundles of logs+benchmarks already present under logs/ and results/
+tgies_densenet121_3seed_2026-09-02.zip
+tgies_vit_tiny_cifar_2026-09-03.zip
+
+# Personal/third-party reference PDFs, not this project's own source
+arXiv 2502.07547.pdf
+Theory Guided IES (6).pdf
+
+# Tool-internal config
+.claude/
+
+# LaTeX build byproducts (regenerate via: tectonic main.tex)
+paper/*.aux
+paper/*.log
+paper/*.blg
+paper/*.bbl
+paper/*.out
+paper/run_*_driver.log
+paper_iclr2026/*.aux
+paper_iclr2026/*.log
+paper_iclr2026/*.blg
+paper_iclr2026/*.bbl
+paper_iclr2026/*.out
+paper_iclr2026/compile*.log

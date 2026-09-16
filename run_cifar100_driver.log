@@ -1,0 +1,14 @@
+########## CIFAR-100 secondary cell: resnet18 / SGD(E) / seed 0 ##########
+=== RUN: method=baseline model=resnet18 opt=SGD_exponential_learning_rate seed=0 Thu Jul 30 12:04:19 PM +06 2026 ===
+=== DONE: baseline_cifar100_resnet18_SGD_exponential_learning_rate_seed0 exit=0 Thu Jul 30 12:19:56 PM +06 2026 ===
+=== RUN: method=ies_shipped model=resnet18 opt=SGD_exponential_learning_rate seed=0 Thu Jul 30 12:19:56 PM +06 2026 ===
+=== DONE: ies_shipped_cifar100_resnet18_SGD_exponential_learning_rate_seed0 exit=0 Thu Jul 30 12:51:37 PM +06 2026 ===
+=== RUN: method=ies_alg1 model=resnet18 opt=SGD_exponential_learning_rate seed=0 Thu Jul 30 12:51:37 PM +06 2026 ===
+########## CIFAR-100 secondary cell: resnet18 / SGD(E) / seed 0 ##########
+SKIP (already complete): baseline_cifar100_resnet18_SGD_exponential_learning_rate_seed0
+SKIP (already complete): ies_shipped_cifar100_resnet18_SGD_exponential_learning_rate_seed0
+=== RUN: method=ies_alg1 model=resnet18 opt=SGD_exponential_learning_rate seed=0 Thu Jul 30 02:49:57 PM +06 2026 ===
+=== DONE: ies_alg1_cifar100_resnet18_SGD_exponential_learning_rate_seed0 exit=0 Thu Jul 30 03:57:36 PM +06 2026 ===
+=== RUN: method=tgies model=resnet18 opt=SGD_exponential_learning_rate seed=0 Thu Jul 30 03:57:36 PM +06 2026 ===
+=== DONE: tgies_cifar100_resnet18_SGD_exponential_learning_rate_seed0 exit=0 Thu Jul 30 04:09:03 PM +06 2026 ===
+RUN_CIFAR100_ALL_DONE Thu Jul 30 04:09:03 PM +06 2026

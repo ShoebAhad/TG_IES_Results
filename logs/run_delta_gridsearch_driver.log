@@ -1,0 +1,12 @@
+=== run_delta_gridsearch.sh START Sun Sep  6 02:52:17 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.003 Sun Sep  6 02:52:17 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.003 exit=0 Sun Sep  6 03:02:45 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.005 Sun Sep  6 03:02:45 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.005 exit=0 Sun Sep  6 03:12:59 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.015 Sun Sep  6 03:12:59 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.015 exit=0 Sun Sep  6 03:22:42 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.03 Sun Sep  6 03:22:42 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.03 exit=0 Sun Sep  6 03:32:15 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.05 Sun Sep  6 03:32:15 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_deltagrid0.05 exit=0 Sun Sep  6 03:41:33 PM +06 2026 ===
+=== run_delta_gridsearch.sh ALL_DONE Sun Sep  6 03:41:33 PM +06 2026 ===

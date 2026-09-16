@@ -1,0 +1,1247 @@
+%%%%%%%%%% Theory-Guided IES -- ICLR 2026 format %%%%%%%%%%
+\documentclass{article}
+
+\usepackage{iclr2026_conference,times}
+
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage[capitalize,noabbrev]{cleveref}
+\usepackage{colortbl}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{enumitem}
+\usepackage[skip=3pt,font=small]{caption}
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{4pt plus 1pt minus 2pt}{3pt plus 1pt minus 1pt}
+\titlespacing*{\subsection}{0pt}{3pt plus 1pt minus 2pt}{2pt plus 1pt minus 1pt}
+\setlength{\abovedisplayskip}{5pt plus 1pt minus 3pt}
+\setlength{\belowdisplayskip}{5pt plus 1pt minus 3pt}
+\setlength{\abovedisplayshortskip}{2pt plus 1pt minus 2pt}
+\setlength{\belowdisplayshortskip}{2pt plus 1pt minus 2pt}
+\setlength{\textfloatsep}{8pt plus 1pt minus 2pt}
+\setlength{\intextsep}{6pt plus 1pt minus 1pt}
+\setlength{\floatsep}{6pt plus 1pt minus 1pt}
+\setlist{topsep=2pt,itemsep=1pt,parsep=0pt}
+\renewcommand{\arraystretch}{0.88}
+\setlength{\jot}{1pt}
+\raggedbottom
+
+% Light, colorblind-checked table highlighting: green = TG-IES is the best
+% value in that column; yellow = TG-IES is not the best in that column.
+\definecolor{tgwin}{HTML}{00FF00}
+\definecolor{tglose}{HTML}{FFF59D}
+\newcommand{\win}[1]{\cellcolor{tgwin}#1}
+\newcommand{\lose}[1]{\cellcolor{tglose}#1}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\crefname{assumption}{Assumption}{Assumptions}
+\Crefname{assumption}{Assumption}{Assumptions}
+
+\DeclareMathOperator{\Var}{Var}
+\newcommand{\CV}{\mathrm{CV}}
+\newcommand{\R}{\mathbb{R}}
+
+\title{Theory-Guided Instance-Dependent Early Stopping \\ via Second-Order Loss Dynamics}
+
+% Authors hidden for double-blind review; do not uncomment until camera-ready.
+% \iclrfinalcopy
+\author{Anonymous authors \\ Paper under double-blind review}
+
+\newcommand{\fix}{\marginpar{FIX}}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Instance-dependent early stopping (IES) speeds up training by skipping the backward pass on individual examples once they look ``mastered,'' based on how much an example's loss changes over consecutive epochs. It works well in practice, but its detection threshold and its patience -- how long to wait before excluding an example -- are hand-tuned constants with no theoretical grounding. We develop TG-IES, a theory-guided version of IES, and close these two gaps to different degrees. First, we show why a second-order loss difference is the right signal in a well-defined noise regime, and use that analysis to derive its detection threshold directly from the training run's own measured noise rather than hand-tuning it. Second, we derive a conditional, local bound on how much removing one example can perturb the trained model, and use it to compute a theory-motivated patience. \textbf{We are upfront about where this theory falls short in practice: the derived patience bound is so loose that a fixed configuration ceiling, not the theory, governs every experiment we ran, so only the threshold is genuinely theory-derived; and a direct probe finds that roughly half of excluded instances violate the bound's own per-instance gradient assumption at any point in training, even though the trained model still ends up close to one trained with no exclusion at all -- a tension we report rather than resolve.} Empirically, TG-IES matches standard training's accuracy within about one point while skipping $53$--$58\%$ of backward passes across several CNN architectures (ResNet-18, VGG-16, DenseNet-121) on CIFAR-10 and CIFAR-100, ahead of three modern pruning methods (InfoBatch, BLS, AlignPrune) and of IES itself at each method's own stopping point; at a matched compute budget this ordering can reverse at low budgets. The mechanism transfers to a Vision Transformer, with smaller savings and a modest accuracy cost. A controlled ablation shows nearly all of the savings come from the derived threshold rather than the derived patience, and a naive grid search over the threshold reaches a comparable trade-off -- so the theory's main practical benefit is reaching that trade-off automatically, not beating brute-force tuning.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Training compute for state-of-the-art models has grown enormously \citep{sevilla2022compute}, and a training run's energy use and carbon footprint scale directly with the compute it consumes \citep{patterson2022carbon}; algorithmic reductions in the number of forward and backward passes a run performs are one of the few practical levers for this cost that do not require more or newer hardware \citep{bartoldson2023computeefficient}. Training modern networks means recomputing gradients for every example at every epoch, even for examples classified correctly with high, stable confidence hundreds of epochs before training ends. A growing line of work removes this redundancy, either by pruning the dataset once before training using a static difficulty score \citep{toneva2019empirical,paul2021deep,swayamdipta2020dataset,sorscher2022beyond,zheng2023coverage,maharana2024d2}, or by dynamically deciding, epoch by epoch, which examples still need a gradient update \citep{loshchilov2015online,katharopoulos2018not,jiang2019accelerating,qin2024infobatch,mindermann2022prioritized,bankes2024reducr,nagaraj2025coresets,jin2026orderdp}.
+
+\citet{yuan2025instance} introduced \emph{Instance-dependent Early Stopping} (IES), a dynamic method with a simple criterion: stop backpropagating on instance $i$ once
+\begin{equation}
+\label{eq:mastery}
+\big|\Delta^2 L_i(\theta^{(t)})\big| = \big|L_i^{(t)} - 2L_i^{(t-1)} + L_i^{(t-2)}\big| < \delta,
+\end{equation}
+the magnitude of the backward second-order finite difference of its own loss trajectory, held below $\delta$ for a patience window. IES reports strong empirical results, but \cref{eq:mastery} was motivated empirically: the original paper does not derive \emph{why} a second-order difference identifies mastery, does not quantify the noise trade-off against first- or third-order differences, does not give a correct curvature reading of what $\Delta^2 L_i$ measures, and does not provide a computable safety guarantee for how long an excluded instance may safely remain excluded. Both $\delta$ and the patience are hand-tuned constants.
+
+\textbf{Research question.} \emph{Does the IES mastery criterion admit theoretical grounding under explicit, checkable assumptions -- grounding that can replace IES's hand-tuned detection threshold with a quantity derived from the training run itself, and provide a principled, checkable bound on how long an excluded instance may safely stay excluded, while preserving IES's accuracy--compute trade-off?}
+
+\textbf{Contributions.} We make three contributions, each closing a specific gap left open by \citet{yuan2025instance}.
+\begin{itemize}[leftmargin=*,itemsep=1pt,topsep=2pt]
+\item \textbf{Understanding the mastery signal (\cref{sec:level1,sec:level2,sec:level3}).} We show that a specific ratio of consecutive loss changes cancels an instance's absolute scale and depends only on its convergence rate (\cref{thm:ratio}); characterize a signal-to-noise band under which comparing exactly two epochs back is MSE-optimal among one, two, or three (\cref{thm:bv,prop:mse}); and give an exact decomposition of the second-order difference showing it is not a pure curvature estimate (\cref{thm:curvature}).
+\item \textbf{Theory-guided threshold calibration (\cref{sec:level2}).} We derive $\delta$ directly from the training run's own measured noise rather than hand-tuning it (\cref{cor:threshold}); a controlled ablation shows this calibration accounts for essentially all of TG-IES's savings advantage over IES (\cref{sec:ablation}).
+\item \textbf{Conditional stability analysis and empirical evaluation (\cref{sec:level4,sec:bridge,sec:setup}).} We derive a local bound on how much excluding one instance can perturb the trained model under an explicit shared-reference idealization (\cref{thm:safe}), and use it to define a conditional exclusion bound $K_{\mathrm{safe}}$ (\cref{cor:kstar}). Under further idealizations we relate the mastery signal to the per-instance gradient norm the bound actually needs (\cref{thm:bridge,cor:bridgeprob}), which we treat as a conditional theoretical bridge rather than a guarantee about the algorithm's removal rule. We then test these assumptions directly: $K_{\mathrm{safe}}$ turns out so large it never binds in any run reported here, so the patience actually used is a fixed ceiling rather than the derived value (\cref{rem:ksafe-nonbinding}), and a direct probe finds the bound's own per-instance gradient-floor hypothesis violated by roughly half the excluded set throughout training, even though overall parameter divergence from full-data training still plateaus (\cref{sec:kstartraj,app:reactprobe}; \cref{app:aggregate} investigates this coexistence quantitatively). Across CIFAR-10/100 and multiple CNN and ViT architectures, TG-IES reduces backward computation while matching baseline accuracy in every CNN setting, and the mechanism transfers to a Vision Transformer at reduced magnitude and a small accuracy cost.
+\end{itemize}
+Putting these together gives \textbf{TG-IES} (\cref{alg:tgies}): it derives $\delta$ from the training run itself and computes a patience seed $K^*$ from the same conditional bound, though in every reported run $K^*$ saturates a fixed ceiling rather than the derived value governing behavior (\cref{rem:ksafe-nonbinding}). We evaluate against a no-removal baseline, IES exactly as shipped, our literal reimplementation of IES's stated Algorithm~1, and three modern dynamic-pruning baselines, on a seed-averaged matrix spanning two datasets, four architectures, and two optimizers. TG-IES matches accuracy and gives the largest measured compute saving among the compared methods in every convolutional setting; on a Vision Transformer the advantage transfers at smaller magnitude and a small accuracy cost. \Cref{fig:overview} summarizes the pipeline.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.68\linewidth]{figures/fig0_overview.png}
+\caption{How TG-IES turns a noisy per-instance loss trajectory into a removal decision. $\delta$ and $K^*$ are theory-guided (orange); the mastery check they feed (blue) links to the conditional stability bound that justifies removal (purple) via \cref{sec:bridge}, under the idealizations \cref{rem:bridge-scope} states; \cref{sec:ablation} shows what goes wrong when those idealizations do not hold closely enough.}
+\label{fig:overview}
+\end{figure}
+
+\section{Related Work}
+\label{sec:related}
+
+\textbf{Static data pruning} commits to a fixed subset before or shortly after training starts, using forgetting events \citep{toneva2019empirical}, early gradient-norm scores \citep{paul2021deep}, training-dynamics cartography \citep{swayamdipta2020dataset}, a cheap proxy model \citep{coleman2020selection}, or scaling-law/coverage-diversity arguments \citep{sorscher2022beyond,zheng2023coverage,maharana2024d2}. \textbf{Dynamic, online selection} instead makes a per-epoch decision: importance sampling \citep{loshchilov2015online,katharopoulos2018not}, probabilistic backward-pass skipping \citep{jiang2019accelerating}, holdout-model criteria \citep{mindermann2022prioritized,bankes2024reducr}, epoch-mean-loss soft pruning \citep{qin2024infobatch}, alignment-score pruning \citep{qin2026alignprune,nagaraj2025coresets}, and EMA-smoothed importance \citep{zhou2026bls}; \citet{jin2026orderdp} give a different formal guarantee than the conditional bound derived here. None of these -- IES included -- derive a removal criterion from a stability guarantee (\cref{sec:setup,app:newbaselines} compare directly against InfoBatch, BLS, AlignPrune). Curriculum learning \citep{bengio2009curriculum,soviany2022curriculum} changes when an example enters, not leaves, training. \Cref{app:related} extends this discussion.
+
+\section{Preliminaries and Notation}
+\label{sec:prelim}
+
+Let $D = \{(x_i,y_i)\}_{i=1}^N$ be the training set and $\theta^{(t)} \in \R^d$ the parameters at epoch $t$. The per-instance loss is $L_i(\theta) = \ell(f_\theta(x_i),y_i)$, $L_i^{(t)} := L_i(\theta^{(t)})$, and $L(\theta) = \frac1N\sum_i L_i(\theta)$. Write $g_i^{(t)} := \nabla_\theta L_i(\theta^{(t)})$, $g^{(t)} := \nabla_\theta L(\theta^{(t)}) = \frac1N\sum_i g_i^{(t)}$, $H_i(\theta) := \nabla_\theta^2 L_i(\theta)$. The \emph{observed} loss is $\tilde L_i^{(t)} := L_i^{(t)} + \xi_{i,t}$ (\cref{ass:noise}). Finite differences: $\Delta^0 L_i^{(t)} = L_i^{(t)}$, $\Delta^N L_i^{(t)} = \Delta^{N-1}L_i^{(t)} - \Delta^{N-1}L_i^{(t-1)}$. Moments $\mathbb E[\cdot]$, $\Var(\cdot)$, $\CV(\cdot) := \sqrt{\Var(\cdot)}/\mathbb E[\cdot]$ over instances are w.r.t.\ $I \sim \mathrm{Unif}\{1,\dots,N\}$. Gradient descent: $\theta^{(t+1)} = \theta^{(t)} - \eta g^{(t)}$.
+
+All results below hold under one or more explicit idealizations, stated once here so each theorem can cite exactly which it needs; all proofs are in \cref{app:proofs} unless noted, and \cref{app:assumptions-extended} discusses why each idealization is needed and what its violation would do.
+
+\begin{assumption}[$\beta$-smoothness]
+\label{ass:smooth}
+$L$ is $\beta$-smooth: $\|\nabla_\theta L(\theta) - \nabla_\theta L(\theta')\| \le \beta\|\theta-\theta'\|$ for all $\theta,\theta'$.
+\end{assumption}
+
+\begin{assumption}[Local geometric trajectory]
+\label{ass:geometric}
+Near an optimum $\theta^*$, the per-instance excess loss follows $L_i^{(t)} - L^* = c_i r_i^t$, $c_i>0$, $r_i \in (0,1)$, over the analysis window -- a local, near-convergence approximation; \cref{sec:level1,sec:level2} are exact conditional on it.
+\end{assumption}
+
+\begin{assumption}[Noise: time-independence, finite variance]
+\label{ass:noise}
+$\tilde L_i^{(t)} = L_i^{(t)} + \xi_{i,t}$ where, conditional on $\theta^{(t)}$, $\xi_{i,t}$ is mean-zero and independent across $t$ for fixed $i$, with $\Var(\xi_{i,t}) = \sigma^2 < \infty$ (\cref{sec:noise-validation} tests this directly).
+\end{assumption}
+
+\begin{assumption}[Sub-Gaussian noise]
+\label{ass:subgaussian}
+In addition to \cref{ass:noise}, each $\xi_{i,t}$ is $\sigma^2$-sub-Gaussian conditional on $\theta^{(t)}$.
+\end{assumption}
+
+\begin{assumption}[Small rate dispersion]
+\label{ass:dispersion}
+There exist $\bar r \in (0,1)$, $\delta_r \in (0,1)$ with $r_i \in [\bar r - \delta_r, \bar r + \delta_r]$ for all $i$, $\delta_r$ small enough for \cref{prop:cv}'s expansion to hold -- an important assumption, not a technicality: \cref{app:counterexample} exhibits widely dispersed rates for which CV moves the \emph{wrong} way as $N$ increases.
+\end{assumption}
+
+Two further technical conditions -- uniform bounds $0<c_{\min}\le c_i\le c_{\max}<\infty$ on \cref{ass:geometric}'s amplitude (\cref{ass:cbounds}), and a bound $M_3$ on third derivatives near the trajectory (\cref{ass:thirdderiv}) -- are stated in full in \cref{app:assumptions-extended} and used by \cref{prop:cv,thm:curvature} respectively.
+
+\section{Level 1: Scale Cancellation Near Convergence}
+\label{sec:level1}
+
+\begin{lemma}[Finite differences of geometric sequences]
+\label{lem:geomdiff}
+Under \cref{ass:geometric}, $\Delta^N(L_i^{(t)}-L^*) = c_i\, r_i^{t-N}(r_i-1)^N$.
+\end{lemma}
+\begin{theorem}[Exact ratio cancellation]
+\label{thm:ratio}
+Under \cref{ass:geometric}, for any $N\ge1$ and instance $i$ with $\Delta^{N-1}(L_i^{(t)}-L^*)\ne0$,
+\begin{equation}
+\label{eq:ratio}
+\frac{\Delta^N(L_i^{(t)}-L^*)}{\Delta^{N-1}(L_i^{(t)}-L^*)} = \frac{r_i-1}{r_i}.
+\end{equation}
+The ratio depends only on $r_i$, not $c_i$; the denominator is nonzero for all finite $t$.
+\end{theorem}
+\Cref{thm:ratio} gives theorem-level content to IES's informal ``scale invariance'' claim: a ratio identity eliminating an instance's amplitude $c_i$, not a claim that $\Delta^2 L_i$ itself is scale-free.
+
+\begin{proposition}[CV closeness under small rate dispersion]
+\label{prop:cv}
+Under \cref{ass:geometric,ass:dispersion,ass:cbounds}, let $X_i(N) := |c_i r_i^{t-N}(1-r_i)^N|$ for $N\in\{1,2\}$ at fixed $t$. There is a finite constant $C(t,\bar r,c_{\min},c_{\max})$ (explicit form in \cref{app:constants}) such that, for all sufficiently small $\delta_r$,
+$\big|\CV(X(2)) - \CV(X(1))\big| \le C(t,\bar r,c_{\min},c_{\max})\cdot\delta_r$.
+\end{proposition}
+\section{Level 2: Noise-Optimality of $N=2$}
+\label{sec:level2}
+
+\begin{theorem}[Exact bias--variance decomposition]
+\label{thm:bv}
+Under \cref{ass:geometric,ass:noise},
+\begin{equation}
+\label{eq:bv}
+\mathbb E\big[(\Delta^N \tilde L_i^{(t)})^2\big] = c_i^2 r_i^{2(t-N)}(r_i-1)^{2N} + \binom{2N}{N}\sigma^2.
+\end{equation}
+\end{theorem}
+Variance scales combinatorially in $N$ ($\binom21{=}2,\binom42{=}6,\binom63{=}20$), the quantitative reason high-order differencing is costly.
+
+\begin{proposition}[$N=2$ is MSE-optimal for $r_i>\tfrac12$]
+\label{prop:mse}
+Under \cref{ass:geometric,ass:noise}, define $\mathrm{MSE}(N,t) := c_i^2 r_i^{2(t-N)}(r_i-1)^{2N} + \binom{2N}{N}\sigma^2$ and $\alpha_i := (1-r_i)^2/r_i^2$. Then
+\begin{align}
+\mathrm{MSE}(2,t)\!\le\!\mathrm{MSE}(1,t) &\iff c_i^2 r_i^{2t}\alpha_i(1-\alpha_i) \ge 4\sigma^2, \label{eq:mse12}\\
+\mathrm{MSE}(2,t)\!\le\!\mathrm{MSE}(3,t) &\iff c_i^2 r_i^{2t}\alpha_i^2(1-\alpha_i) \le 14\sigma^2. \label{eq:mse23}
+\end{align}
+If $r_i>\tfrac12$ ($\alpha_i<1$), $N=2$ minimizes MSE over $\{1,2,3\}$ whenever $\tfrac{4\sigma^2}{\alpha_i(1-\alpha_i)} \le c_i^2 r_i^{2t} \le \tfrac{14\sigma^2}{\alpha_i^2(1-\alpha_i)}$, a band that is non-empty for every $\alpha_i<1$.
+\end{proposition}
+\textbf{Empirical test} (\cref{app:extra-figs}). A naive population-average test finds $N{=}1$ beats $N{=}2$ -- the \emph{opposite} of \cref{prop:mse} -- dominated by already-converged instances outside the SNR band. The fair test evaluates each instance at the epoch its own signal first drops below the calibrated $\delta{=}0.01597$: there, pooling $46{,}779$ instances, $N{=}2$ gives the lowest MSE, two orders of magnitude below $N{=}1$ and three below $N{=}3$, confirming \cref{prop:mse} where it applies. Separately, per-quartile rate estimates show mean $\hat r$ rising ($0.53\to0.76$) and CV falling ($1.05\to0.75$) across training -- \cref{ass:geometric} fits better in the second half.
+
+\begin{corollary}[Threshold calibration]
+\label{cor:threshold}
+Under \cref{ass:noise,ass:subgaussian}, $\Delta^2\xi_{i,t}$ is mean-zero with variance $6\sigma^2$. Setting $\delta = k\sqrt6\,\sigma$: if approximately Gaussian, $\Pr(|\Delta^2\xi_{i,t}|>\delta)\approx 2(1-\Phi(k))$; in general, $\Pr(|\Delta^2\xi_{i,t}|>\delta) \le 2\exp(-k^2/2)$.
+\end{corollary}
+\Cref{cor:threshold} turns $\delta$ from a hand-tuned constant into a function of an estimated noise scale $\hat\sigma$ and a target tail probability $k$, used online by TG-IES (\cref{sec:level4}).
+
+\section{Level 3: What the Second-Order Difference Measures}
+\label{sec:level3}
+
+\begin{theorem}[Backward second-difference decomposition]
+\label{thm:curvature}
+Under \cref{ass:thirdderiv}, along full-batch GD,
+\begin{multline}
+\label{eq:curvature}
+\Delta^2 L_i^{(t)} = \eta\Big(\langle g_i^{(t-2)},g^{(t-2)}\rangle - \langle g_i^{(t-1)},g^{(t-1)}\rangle\Big)
+{}+ \frac{\eta^2}{2}g^{(t-1)\top}H_i(\theta^{(t-1)})g^{(t-1)} \\
+{}- \frac{\eta^2}{2}g^{(t-2)\top}H_i(\theta^{(t-2)})g^{(t-2)} + R_{i,t},\qquad
+|R_{i,t}| \le \tfrac{M_3}{6}\eta^3\big(\|g^{(t-1)}\|^3+\|g^{(t-2)}\|^3\big).
+\end{multline}
+\end{theorem}
+$\Delta^2 L_i$ is \emph{not} a pure curvature estimate. \cref{eq:curvature} shows it also contains an $O(\eta)$ gradient-drift term alongside the $O(\eta^2)$ curvature term. In the small-step-size limit $\eta\to0$, the drift term is the dominant one; the two terms vanish together only near convergence. \textbf{This ordering describes the limit $\eta\to0$, not this paper's actual step sizes} ($\eta$ up to $0.1$). Direct instrumentation (\cref{sec:lrmechanism}) finds the opposite in absolute magnitude under every schedule tested: the drift term correlates only weakly with the observed signal ($r{=}0.23$--$0.37$) and does not exceed the curvature-plus-remainder term. A reader should therefore not take ``drift leads'' as a description of what the mastery signal measures in practice -- only of the leading order as $\eta\to0$. The decomposition itself extends unchanged to Algorithm~\ref{alg:tgies}'s active-set gradient (\cref{eq:activegrad}).
+
+\section{Removal Perturbation Bounds and a Conditional Exclusion Bound}
+\label{sec:level4}
+
+To keep the update on the same $1/N$ scale as full-batch GD while skipping passive instances, TG-IES uses the scaled active-set gradient
+\begin{equation}
+\label{eq:activegrad}
+\hat g^{(t)} = \frac1N \sum_{i\in A_t} g_i^{(t)},
+\end{equation}
+where $A_t$ is the active set at epoch $t$ -- unlike shipped IES's $1/|A_t|$ normalization, which increases effective step size as instances are excluded; \cref{eq:activegrad} shrinks proportionally, trading that implicit speed heuristic for the stability bound below.
+
+\begin{theorem}[Conditional local stability bound, shared-reference trajectory]
+\label{thm:safe}
+Suppose instance $i$ satisfies $\|g_i^{(t)}\| < \varepsilon$ for all $t\in[T-K,T]$. Consider two runs sharing the same reference trajectory $\{\theta^{(t)}\}_{t=T-K}^T$, both using \cref{eq:activegrad} evaluated on it, differing only in whether $i \in A_t$. Then $\big\|\theta^{(T)}_{\mathrm{full}} - \theta^{(T)}_{\mathrm{rem}}\big\| \le \frac{K\eta\varepsilon}{N}$. If additionally $L_{\mathrm{test}}$ is $\beta_{\mathrm{test}}$-Lipschitz, $\big|L_{\mathrm{test}}(\theta^{(T)}_{\mathrm{full}}) - L_{\mathrm{test}}(\theta^{(T)}_{\mathrm{rem}})\big| \le \beta_{\mathrm{test}} K\eta\varepsilon/N$.
+\end{theorem}
+\textbf{Interpretation.} If one excluded instance's gradient norm stays below $\varepsilon$ throughout a $K$-step window, removing it changes the parameters by at most $K\eta\varepsilon/N$, \emph{relative to a run that shares the same reference trajectory}. This is a \emph{local, single-removal} statement: it bounds one counterfactual against a common reference, not the accuracy of the actual trajectory produced by removing many instances over many epochs -- the gap the next remark names explicitly.
+\begin{remark}[Why this is \emph{conditional} and \emph{local}]
+\label{rem:shared-traj}
+\Cref{thm:safe} compares two runs on the \emph{same} reference trajectory; an actual run's two counterfactual trajectories diverge from the moment $i$ is removed. This is \emph{conditional} (on the shared-reference idealization) and \emph{local} (one removal's instantaneous perturbation), not a guarantee that Algorithm~\ref{alg:tgies}'s actual, multi-removal trajectory stays bounded from the full-data one over an entire run -- nothing here rules out compounding drift. \Cref{app:multistep} attempts a multi-step bound (correct but exponentially loose, \cref{prop:multistep}); \cref{sec:kstartraj} instruments the actual quantity directly and finds no blow-up over $200$ epochs -- evidence against the worst case, not a proof.
+\end{remark}
+
+\begin{corollary}[Conditional exclusion bound]
+\label{cor:kstar}
+Given tolerance $\tau>0$ on test-loss deviation, any exclusion window $K \le K_{\mathrm{safe}} := \left\lfloor \frac{N\tau}{\beta_{\mathrm{test}}\,\eta\,\varepsilon} \right\rfloor$ keeps $|L_{\mathrm{test}}(\theta^{(T)}_{\mathrm{full}})-L_{\mathrm{test}}(\theta^{(T)}_{\mathrm{rem}})|\le\tau$; the floor (not ceiling) is required since rounding up would violate the bound.
+\end{corollary}
+\begin{remark}[$K_{\mathrm{safe}}$ is not Algorithm~\ref{alg:tgies}'s patience]
+\label{rem:kmismatch}
+$K_{\mathrm{safe}}$ bounds a \emph{closed} exclusion window counted backward from a fixed endpoint; the algorithm's patience $K^*$ governs an \emph{open-ended} exclusion starting once $K^*$ consecutive low-signal epochs elapse. No result here shows seeding $K^*\leftarrow K_{\mathrm{safe}}$ keeps that exclusion inside \cref{cor:kstar}'s budget; $K_{\mathrm{safe}}$ is a principled seed, not a safety proof. Independently, \cref{thm:safe} requires $\|g_i^{(t)}\|<\varepsilon$ while the algorithm thresholds the noisy $\hat S_i<\delta$; \cref{thm:curvature}'s route (Cauchy--Schwarz on drift) does not close this, since drift is a \emph{difference} of inner products, not either absolutely -- \cref{sec:bridge} closes it differently.
+\end{remark}
+
+\begin{remark}[$K_{\mathrm{safe}}$ is never the binding constraint in this paper's experiments]
+\label{rem:ksafe-nonbinding}
+Every run clamps $K^*$ to $[1,15]$, and in \emph{every} setting tested, including every ViT-Tiny cell (\cref{app:vit}), the uncapped $K_{\mathrm{safe}}$ already exceeds $15$ before the clamp -- so the patience used is the engineering ceiling, not $K_{\mathrm{safe}}$ (\cref{tab:ksafe}: $5$ orders of magnitude larger on the primary cell). This limits the claim that TG-IES replaces IES's hand-tuned patience with a derived quantity: $\delta$ is genuinely derived and does the paper's practical work (\cref{sec:ablation}), but the patience used is, in every run, the fixed ceiling $15$ -- as hand-set as IES's own. \Cref{cor:kstar} demonstrates only that $K_{\mathrm{safe}}$ is an upper bound wide enough never to bind at this $\tau$, not a setting where the derived value governs behavior; a tighter $\tau$ would test that, and we have not run it.
+\end{remark}
+
+\begin{table}[h]
+\caption{Uncapped $K_{\mathrm{safe}}$ vs.\ the configured cap, primary cell, epoch-30 recalibration ($N{=}50000$, $\tau{=}0.02$, $\beta_{\mathrm{test}}{=}1$, $\eta_{31}{\approx}0.0282$).}
+\label{tab:ksafe}
+\centering
+\small
+\begin{tabular}{ccc}
+\toprule
+$\varepsilon_0$ (per seed) & $K_{\mathrm{safe}}$ (uncapped, per seed) & Used $K^*$ \\
+\midrule
+$0.0269$ / $0.0297$ / $0.0293$ & $1.32$M / $1.19$M / $1.21$M & $15$ (all seeds) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Closing the Gap: From Mastery Signal to Gradient Norm}
+\label{sec:bridge}
+
+\begin{assumption}[Per-instance smoothness]
+\label{ass:smoothi}
+Each $L_i$ is $\Lambda_i$-smooth on the same neighborhood $U$ that \cref{ass:geometric} is stated on, and $L_i(\theta^*)=L^*$ at the \emph{same} $\theta^*$ for every $i$ (a shared interpolating solution).
+\end{assumption}
+
+\begin{lemma}[Smoothness bounds the gradient by suboptimality]
+\label{lem:descent}
+If $f$ is $\Lambda$-smooth on $U$ and $\theta^*\in U$ satisfies $f(\theta^*)\le f(\theta-\tfrac1\Lambda\nabla f(\theta))$ for $\theta\in U$, then $\|\nabla f(\theta)\|^2 \le 2\Lambda(f(\theta)-f(\theta^*))$.
+\end{lemma}
+\begin{theorem}[Mastery bounds the gradient norm]
+\label{thm:bridge}
+Under \cref{ass:geometric,ass:smoothi} and \cref{lem:descent}'s hypothesis for $f=L_i$,
+\begin{equation}
+\label{eq:bridge}
+\|g_i^{(t)}\| \;\le\; \frac{r_i}{1-r_i}\sqrt{2\Lambda_i\,\Delta^2 L_i^{(t)}}, \qquad\text{so}\qquad \Delta^2 L_i^{(t)} < \delta \;\Rightarrow\; \|g_i^{(t)}\| < \varepsilon_i(\delta) := \frac{r_i}{1-r_i}\sqrt{2\Lambda_i\delta}.
+\end{equation}
+\end{theorem}
+\begin{corollary}[Probabilistic bridge under observation noise]
+\label{cor:bridgeprob}
+Under \cref{thm:bridge}'s assumptions plus \cref{ass:subgaussian}, for $k>0$, $\delta':=\delta+k\sqrt6\,\sigma$: $\Pr\big(\hat S_i<\delta \text{ and } \|g_i^{(t)}\|\ge\varepsilon_i(\delta')\big) \le 2\exp(-k^2/2)$.
+\end{corollary}
+\begin{remark}[Scope]
+\label{rem:bridge-scope}
+This closes \cref{rem:kmismatch}'s gap under two further idealizations (\cref{ass:smoothi}, a shared interpolating solution), with three caveats: $\varepsilon_i(\delta)\propto r_i/(1-r_i)$ grows unboundedly as $r_i\to1$ (uninformative near-stationary rather than near-converged); \cref{cor:bridgeprob} bounds a \emph{joint}, not conditional, probability; and, more basically, every experiment here trains with weight decay ($5{\times}10^{-4}$), which pulls parameters away from any per-instance loss-minimizing $\theta^*$ (cross-entropy typically has no finite minimizer under it at all) -- a real tension with \cref{ass:smoothi}'s literal reading that we do not resolve here. \textbf{Given these idealizations, we treat \cref{thm:bridge,cor:bridgeprob} as a conditional theoretical bridge, not as an empirical guarantee that every instance TG-IES excludes has a small gradient} -- \cref{app:reactprobe}'s direct probe checks this empirically and finds the gap the idealizations predict.
+\end{remark}
+
+\textbf{Empirical check} (\cref{app:extra-figs}): since $r_i,\Lambda_i$ are not estimated per instance, we test \cref{thm:bridge}'s qualitative content instead -- confirmed across all three LR schedules, with mastery-passing instances having $30$--$33\times$ smaller mean gradient norms.
+
+\subsection{The TG-IES Algorithm}
+
+\begin{algorithm}[t]
+\caption{Theory-Guided Instance-Dependent Early Stopping (TG-IES)}
+\label{alg:tgies}
+\small
+\begin{algorithmic}
+\STATE {\bfseries Require:} data $D$, model $f_\theta$, learning rate $\eta$, noise estimate $\hat\sigma$, target per-check false-positive rate $p\in(0,1)$, tolerance $\tau$, patience ceiling $K_{\max}$, epochs $T$
+\STATE Set $k \leftarrow \Phi^{-1}(1-p/2)$, $\delta \leftarrow k\sqrt6\,\hat\sigma$ \COMMENT{\cref{cor:threshold}}
+\STATE Estimate $\varepsilon_0 \leftarrow$ recent per-instance gradient-norm floor
+\STATE Set $K_{\mathrm{safe}} \leftarrow \lfloor N\tau / (\beta_{\mathrm{test}}\,\eta\,\varepsilon_0) \rfloor$ \COMMENT{\cref{cor:kstar}}
+\STATE Set $K^* \leftarrow \min(K_{\mathrm{safe}},\,K_{\max})$ \COMMENT{seeds patience per \cref{rem:kmismatch}; $K_{\mathrm{safe}}$ never binds in this paper's runs (\cref{rem:ksafe-nonbinding}), so $K^*=K_{\max}$ throughout}
+\STATE Init $\theta^{(0)}$; $\tilde L_i^{(-1)}=\tilde L_i^{(-2)}=\infty$; $\mathrm{cnt}[i]=0$; all $i$ active
+\FOR{$t=1$ {\bfseries to} $T$}
+   \STATE Forward pass on all $i\in D$: compute $\tilde L_i^{(t)}$
+   \FOR{each $i \in D$}
+      \STATE $\hat S_i \leftarrow |\tilde L_i^{(t)} - 2\tilde L_i^{(t-1)} + \tilde L_i^{(t-2)}|$
+      \IF{$\hat S_i < \delta$} \STATE $\mathrm{cnt}[i] \mathrel{+}= 1$ \ELSE \STATE $\mathrm{cnt}[i] \leftarrow 0$; mark $i$ active \ENDIF
+      \IF{$\mathrm{cnt}[i] \ge K^*$} \STATE mark $i$ passive \ENDIF
+   \ENDFOR
+   \STATE $A_t \leftarrow \{i : i \text{ active}\}$; \textbf{break} if $A_t = \emptyset$ or stopping criterion triggered
+   \STATE Backward pass on $A_t$: $\hat g^{(t)} \leftarrow \frac1N\sum_{i\in A_t}\nabla_\theta L_i(\theta^{(t)})$ \COMMENT{\cref{eq:activegrad}}
+   \STATE $\theta^{(t+1)} \leftarrow \theta^{(t)} - \eta\hat g^{(t)}$
+\ENDFOR
+\STATE \textbf{return} $\theta^{(T)}$
+\end{algorithmic}
+\end{algorithm}
+
+\textbf{Practical notes} (\cref{app:practical}): one-time recalibration at epoch 30; $\varepsilon_0$ from a cheap last-layer proxy; consistent forward-pass discipline avoiding a train/eval batch-norm mismatch \citep{ioffe2015batch}.
+
+\subsection{Scope of Theory-Guided Calibration}
+\label{sec:selfcalib-scope}
+
+TG-IES \emph{derives} $\delta$ from measured quantities ($\hat\sigma$) rather than hand-tuning it, and this is where the paper's practical work happens (\cref{sec:ablation}). \textbf{Patience is weaker than that: $K^*$ is computed via \cref{cor:kstar}, but \cref{rem:ksafe-nonbinding} shows the computed $K_{\mathrm{safe}}$ never binds at this $\tau$, so the patience \emph{used} is the fixed ceiling $15$ -- itself hand-set.} This costs four constants fixed once, identical across every setting ($p_{\mathrm{budget}}=0.3$, $\tau=0.02$, $\beta_{\mathrm{test}}=1$, percentile $20$; \cref{sec:sensitivity} sweeps the percentile). \Cref{app:zeroshot} checks the ``same four constants everywhere'' claim on all eleven cells TG-IES runs on -- true of $\delta$, not, in this sense, of $K^*$.
+
+\begin{table}[h]
+\caption{Which result rests on which idealization, and its practical status in this paper's experiments.}
+\label{tab:hierarchy}
+\centering
+\small
+\begin{tabular}{p{2.2cm}p{3.6cm}p{3.3cm}p{2.7cm}}
+\toprule
+Result & Main assumption & What it establishes & Practical status \\
+\midrule
+\cref{thm:ratio} & \cref{ass:geometric} (geometric loss decay) & Scale cancellation & Exact under the model \\
+\cref{prop:mse} & \cref{ass:geometric,ass:noise} + rate dispersion & When $N{=}2$ minimizes MSE & Conditional on an SNR band; confirmed in-band \\
+\cref{thm:curvature} & \cref{ass:thirdderiv} (bounded third derivatives) & Exact drift/curvature decomposition & Ordering is asymptotic ($\eta\to0$); not confirmed in magnitude at this paper's step sizes \\
+\cref{thm:safe} & Small per-instance gradient + shared-reference trajectory & Local, single-removal exclusion bound & Conditional; per-instance hypothesis violated for $\sim\!47\%$ of the excluded set \\
+\cref{thm:bridge} & \cref{ass:smoothi} + shared interpolating solution & Mastery $\Rightarrow$ small gradient & Highly conditional; in tension with the weight decay used here \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+\textbf{Methods.} (1) \textbf{Baseline}: no removal. (2) \textbf{IES (shipped)}: released code. (3) \textbf{IES (literal)}: our faithful reimplementation of \citet{yuan2025instance}'s stated Algorithm~1. (4) \textbf{TG-IES}: \cref{alg:tgies}. All four share byte-identical data pipelines, model code, and optimizer configuration.
+
+\textbf{Data, models, optimization.} CIFAR-10/100 \citep{krizhevsky2009learning}; ResNet-18 \citep{he2016deep} (primary), VGG-16 \citep{simonyan2015very}, DenseNet-121 \citep{huang2017densely}, and a CIFAR-native ViT-Tiny (\cref{app:vit}). SGD, momentum $0.9$, weight decay $5{\times}10^{-4}$, batch size $64$, $200$ epochs; exponential ($\eta_0{=}0.1$, $\gamma{=}0.96$/epoch) and fixed ($\eta{=}10^{-3}$) schedules, plus Adam (\cref{app:adam}). TG-IES: $p_{\mathrm{budget}}=0.3$, $\tau=0.02$, $\beta_{\mathrm{test}}=1$, percentile $20$, one-time recalibration at epoch 30, $K^*=\min(K_{\mathrm{safe}},K_{\max})$ with $K_{\max}=15$ (\cref{rem:ksafe-nonbinding}: $K_{\mathrm{safe}}$ never binds, so $K^*=K_{\max}=15$ in every reported run).
+
+\textbf{Matrix and statistics.} All cells except three LR-sweep cells (\cref{sec:lrmechanism}, single-seed by design) run at seeds $\{0,1,2\}$ (mean $\pm$ std; \cref{app:stats} gives paired statistics). Accuracy is best-over-200-epochs \citep{yuan2025instance}; backprop savings are $100\times(1 - \text{cumulative backprop instances}/(N\times\text{epochs}))$, FLOP-normalized in \cref{sec:flops}. All runs used a single RTX 5090 GPU.
+
+\section{Results}
+\label{sec:results}
+
+\begin{table}[t]
+\caption{Primary setting, mean $\pm$ std, 3 seeds, incl.\ three modern baselines (\cref{app:newbaselines}). \colorbox{tgwin}{Green}: best in column; \colorbox{tglose}{yellow}: not best (TG-IES trades a small accuracy cost for a large compute saving, the point of the method).}
+\label{tab:primary}
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+Method & Test Acc.\ (\%) & Backprop Saved (\%) \\
+\midrule
+Baseline & $95.03 \pm 0.13$ & $0.03 \pm 0.00$ \\
+IES (shipped) & $94.71 \pm 0.09$ & $45.66 \pm 0.38$ \\
+IES (literal) & $94.85 \pm 0.17$ & $49.02 \pm 0.44$ \\
+InfoBatch \citep{qin2024infobatch} & $94.32\pm0.12$ & $38.91\pm0.01$ \\
+BLS-InfoBatch \citep{zhou2026bls} & $94.68\pm0.18$ & $35.84\pm0.09$ \\
+AlignPrune \citep{qin2026alignprune} & $94.48\pm0.05$ & $20.83\pm0.07$ \\
+\win{TG-IES (ours)} & \lose{$94.85 \pm 0.28$} & \win{$\mathbf{53.63 \pm 0.30}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\Cref{app:stats} reports paired per-seed differences, CIs, effect sizes, and an exact sign test for every 3-seed setting, including this one; the $\pm$ above is a sample standard deviation, not a significance test.
+
+\begin{table}[t]
+\caption{Secondary settings, mean $\pm$ std, 3 seeds. R18(F): ResNet-18, fixed LR. VGG-16(E): VGG-16, exponential LR.}
+\label{tab:secondary}
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{R18(F)} & \multicolumn{2}{c}{VGG-16(E)} \\
+Method & Acc. & Saved & Acc. & Saved \\
+\midrule
+Baseline & $92.21\pm0.08$ & $0.03\pm0.00$ & $93.30\pm0.12$ & $0.03\pm0.00$ \\
+IES (shipped) & $91.69\pm0.09$ & $44.50\pm0.24$ & $93.31\pm0.04$ & $37.71\pm0.87$ \\
+IES (literal) & $91.77\pm0.11$ & $\mathbf{49.42\pm0.17}$ & $93.15\pm0.17$ & $41.02\pm1.12$ \\
+TG-IES & \lose{$91.91\pm0.18$} & \lose{$29.27\pm0.30$} & \lose{$93.11\pm0.14$} & \win{$\mathbf{54.43\pm0.12}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On all three CNN settings TG-IES sits at or above every other method's accuracy while saving the most compute among the compared methods (\cref{app:extra-figs} plots the trade-off). \textbf{A reproducibility correction.} An earlier version reported TG-IES collapsing to $1.8\%$ savings on VGG-16, traced to a stale, repeated-recalibration configuration (audit trail in \cref{app:experiment}). Re-run, VGG-16 leads every method ($54.4\%$ saved); ResNet-18(fixed-LR) genuinely trails IES (literal) at $29.3\%\pm0.3$ vs.\ $49.4\%\pm0.2$ (\cref{tab:secondary}), attributed to its fixed, non-decaying learning rate (\cref{sec:lrmechanism}). The underlying failure mode remains real, demonstrated by \cref{sec:ablation}'s controlled ablation rather than this since-corrected data point.
+
+\subsection{FLOP-Normalized Savings, and Measured Efficiency}
+\label{sec:flops}
+
+Every IES-family method forwards \emph{every} instance every epoch, so backprop-instance savings overstate FLOP savings; the real backward/forward ratio is $1.995$--$1.998$ here, giving $\text{FLOP saved} = \tfrac23\times(\text{backprop saved})$, so TG-IES's $53.63\%$ becomes $\mathbf{35.7\%}$ FLOP-normalized -- still largest of the four ($30.4\%$/$32.7\%$ IES shipped/literal), our recommended figure for hardware/energy comparison. Measured wall-clock/energy (\cref{app:efficiency}) confirm the ordering, though TG-IES unexpectedly has the \emph{highest} peak GPU memory (its recalibration pass), a trade-off we report rather than omit; a batch-size sweep (\cref{app:efficiency}) finds this wall-clock advantage is a full-run property that does not hold in short 8-epoch windows, where TG-IES is slower than baseline at every batch size tested.
+
+\section{Generalization, Baselines, and Ablations}
+\label{sec:generalization}
+
+A second dataset (CIFAR-100) and a third architecture (DenseNet-121) show the same pattern, more pronounced on CIFAR-100: TG-IES matches baseline accuracy ($0.87$/$0.08$-point cost) with the largest saving of all four -- $57.76\pm0.04\%$ and $54.53\pm0.66\%$ respectively (full tables: \cref{app:zeroshot,app:experiment}).
+
+\textbf{Beyond convolutions: ViT-Tiny} (\cref{app:vit}: full tables, caveats). TG-IES saves $25.52\pm0.26\%$ (CIFAR-10) and $26.28\pm0.14\%$ (CIFAR-100) -- $1.5$--$2.1\times$ IES (literal) -- via the same four constants, transferring the mechanism but not its magnitude: much smaller savings than CNNs, with a small accuracy cost not seen there.
+
+\textbf{Modern dynamic-pruning baselines} (\cref{tab:primary}; full comparison \cref{app:newbaselines}). TG-IES leads InfoBatch \citep{qin2024infobatch}, BLS-InfoBatch \citep{zhou2026bls}, and AlignPrune \citep{qin2026alignprune} by a wide margin at each method's own stopping point, though not at a matched compute \emph{budget}: InfoBatch/BLS-InfoBatch lead by $2.5$--$4.3$ points at $20$--$30\%$ budget, narrowing and reversing by $40\%$ (\cref{app:equalcompute}).
+
+\subsection{Component Ablation: Which Mechanism Drives the Gains?}
+\label{sec:ablation}
+
+TG-IES differs from IES (literal) in two calibrated quantities: $\delta$ (\cref{cor:threshold}) and $K^*$ (\cref{cor:kstar}). \Cref{tab:ablation} holds one fixed at IES (literal)'s value while calibrating the other (primary setting, seed 0).
+
+\begin{table}[h]
+\caption{Component ablation, primary setting, seed 0. Starred = calibrated; unstarred = held at IES (literal)'s values. Deliberately-crippled TG-IES variants, not competing methods.}
+\label{tab:ablation}
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+Setting & Acc.\ (\%) & Saved (\%) & $\delta$ & $K^*$ \\
+\midrule
+Neither & 94.92 & 48.59 & 0.001 & 1 \\
+$\delta$ only & 94.68 & \textbf{66.62} & 0.0077* & 1 \\
+$K^*$ only & 95.04 & 3.41 & 0.001 & 15* \\
+Both (full TG-IES) & 94.61 & 53.48 & 0.0160* & 15* \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Two findings, neither expected going in. \emph{Calibrating $\delta$ alone ($K^*{=}1$) saves more than full TG-IES} ($66.6\%$ vs.\ $53.5\%$) at comparable accuracy: essentially all of TG-IES's savings advantage traces to threshold, not patience, calibration. \emph{Calibrating $K^*$ alone against a fixed strict $\delta{=}0.001$ collapses savings to $3.4\%$}: the patience counter keeps resetting before accumulating $15$ consecutive epochs under strict $\delta$ -- a controlled demonstration of \cref{rem:kmismatch}'s gap (the VGG-16 anomaly \cref{sec:results} corrected had only suggested this uncontrollably): $\delta,K^*$ calibrated independently can each be correct w.r.t.\ its own corollary while jointly failing. Full TG-IES lands between the extremes ($53.5\%$), trading some of $\delta$-only's raw savings for the additional patience mechanism \cref{thm:safe}'s stability analysis motivates. \textbf{Because $K_{\mathrm{safe}}$ does not bind in our experiments (\cref{rem:ksafe-nonbinding}), that patience is in practice the fixed ceiling $K_{\max}=15$, not the derived bound.}
+
+\textbf{Does calibration beat a naive search?} A 5-point grid over fixed $\delta$ (\cref{app:deltagrid}) traces the same frontier as the calibrated $\delta{=}0.0077$ ($94.68\%$/$66.62\%$; e.g.\ $\delta{=}0.015$: $94.52\%$/$70.47\%$). This does not show the derived $\delta$ beats search -- only that calibration reaches a comparable point in one run, not the grid's five. Normalization ($1/N$ vs.\ $1/|A_t|$) is not a fifth ablatable axis here, for a concrete, checked reason given in \cref{app:practical}.
+
+\subsection{$K^*$-Sweep and Trajectory-Divergence Instrumentation}
+\label{sec:kstartraj}
+
+To probe \cref{rem:shared-traj}'s open question directly, we sweep patience $K^*\in\{1,2,4,8,15,30\}$ (self-calibrated $\delta$, primary cell, 3 seeds) and log $\|\theta^{(t)}_{\mathrm{TG\text{-}IES}}-\theta^{(t)}_{\mathrm{baseline}}\|$ against a shared-seed baseline every 20 epochs (matched baseline: $95.08\pm0.14\%$).
+
+The accuracy/savings trade-off is smooth and monotonic in $K^*$ -- savings fall from $66.98\pm0.62\%$ ($K^*{=}1$) to $44.13\pm0.40\%$ ($K^*{=}30$) as accuracy rises to $94.87\pm0.09\%$ (\cref{app:kstartraj}), not a cliff. \emph{Absolute} parameter distance from baseline \emph{decreases} over training for every $K^*$ and plateaus late, ordered exactly as \cref{thm:safe} predicts, no crossings. \textbf{This does not mean the per-instance hypothesis holds}: a reactivation probe finds $47.4\%$ of excluded instances exceed the calibrated floor at every checkpoint, no improving trend (\cref{app:reactprobe}) -- an unresolved coexistence, not a vindication. Evidence consistent with, not a substitute for, the multi-step bound \cref{app:multistep} attempts.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We asked whether IES's mastery criterion admits theoretical grounding that replaces its hand-tuned threshold with a training-derived quantity and its hand-tuned patience with a principled, checkable bound. We established five results under explicit idealizations: exact scale-cancellation (\cref{thm:ratio}); a bias--variance/SNR regime for second-order differencing (\cref{thm:bv,prop:mse}); a corrected decomposition whose drift-dominance ordering is not confirmed in magnitude at real step sizes (\cref{thm:curvature}, \cref{sec:lrmechanism}); a conditional, local stability bound yielding closed-form $\delta,K^*$ (\cref{thm:safe}), instantiated as TG-IES; and a gradient-norm bridge under further idealizations (\cref{thm:bridge,cor:bridgeprob}). The honest empirical picture is more qualified than a first read of \cref{sec:level4} suggests: $\delta$ is genuinely derived and carries essentially all of TG-IES's savings advantage; $K^*$ is not, since $K_{\mathrm{safe}}$ never binds and the ceiling used is fixed (\cref{rem:ksafe-nonbinding}), and the bound's own per-instance hypothesis is violated by roughly half the excluded set at every snapshot when checked directly (\cref{app:reactprobe}). \textbf{The contribution this paper supports is a theory-guided understanding and calibration of IES's mastery signal, not a complete safety proof for dynamic data removal.}
+
+\section{Limitations}
+\label{sec:limitations}
+
+\textbf{Theoretical assumptions.} Our analysis rests on a local geometric loss-decay model (\cref{ass:geometric}), bounded and time-independent observation noise (\cref{ass:noise}), and smoothness (\cref{ass:smooth,ass:thirdderiv}); \cref{thm:bridge}'s gradient-norm bridge additionally needs per-instance smoothness and a shared interpolating solution (\cref{ass:smoothi}). These are useful analytical idealizations, not properties we verify hold throughout neural network training.
+
+\textbf{Patience calibration.} $K_{\mathrm{safe}}$ never binds in any setting we test (\cref{rem:ksafe-nonbinding}): the patience actually used is the fixed engineering ceiling $K_{\max}=15$, as arbitrary as IES's own constant. Only the threshold $\delta$ is genuinely derived from the training run, and it accounts for essentially all of TG-IES's savings advantage over IES (\cref{sec:ablation}); a naive grid search over $\delta$ reaches a comparable accuracy--savings frontier, so calibration's practical advantage is reaching that frontier automatically, not beating brute-force search (\cref{app:deltagrid}).
+
+\textbf{Trajectory-level guarantees.} \cref{thm:safe} bounds one instance's removal on a shared reference trajectory, not the accuracy of Algorithm~\ref{alg:tgies}'s actual, multi-removal trajectory over an entire run. A first multi-step extension is exponentially loose (\cref{app:multistep}), and a direct probe finds the bound's own per-instance gradient-floor hypothesis violated by roughly half the excluded set at every checkpoint (\cref{app:reactprobe}), even though measured parameter divergence from full-data training plateaus rather than growing (\cref{sec:kstartraj}; \cref{app:aggregate} narrows, but does not close, this gap). We treat the plateau as empirical evidence against the worst case, not as validation of the theoretical bound.
+
+\textbf{The gradient-norm bridge.} \cref{thm:bridge,cor:bridgeprob} require a shared interpolating solution across instances, in tension with the weight decay used in every experiment here (\cref{rem:bridge-scope}). We treat this result as a conditional theoretical bridge, not a guarantee that every excluded instance has a small gradient.
+
+\textbf{Empirical scope.} All experiments are at CIFAR scale with a limited set of CNN and ViT architectures and optimizers; we do not claim the measured savings transfer directly to larger-scale training. The reported wall-clock and energy advantage is also a full-training-run property: in short 8-epoch windows TG-IES is slower than baseline at every batch size tested (\cref{app:efficiency}), because its per-instance bookkeeping and one-time recalibration pass are not yet amortized. TG-IES should therefore not be read as a universally faster per-epoch training procedure.
+
+\section*{Impact Statement}
+This paper advances compute-efficient training; we identify no notable societal risks.
+
+\bibliography{references}
+\bibliographystyle{iclr2026_conference}
+
+\newpage
+\appendix
+\onecolumn
+
+\section{Extended Related Work}
+\label{app:related}
+
+\textbf{Why training-time compute matters.} Training compute for state-of-the-art models has grown roughly $10\times$ every year since 2012 and continues to grow \citep{sevilla2022compute}, with a directly proportional energy and carbon cost \citep{patterson2022carbon}. \citet{bartoldson2023computeefficient}'s survey of algorithmic (rather than hardware) efficiency gains frames exactly the category of method this paper contributes to: a technique reducing the number of forward/backward passes a fixed training recipe performs, orthogonal to and stackable with hardware- or precision-level efficiency gains. \Cref{sec:flops}'s FLOP-normalized accounting of TG-IES's savings is this paper's own direct, measured contribution to that question.
+
+\textbf{Static data pruning and difficulty scoring.} \citet{toneva2019empirical} track how often an example is learned then forgotten across epochs and show unforgettable examples can be removed with little accuracy loss. \citet{paul2021deep} score examples early in training with the gradient-norm-based EL2N score and prune a static subset before the rest of training. \citet{swayamdipta2020dataset} map examples along confidence and variability axes computed from training dynamics (``dataset cartography''). \citet{coleman2020selection} select a subset using scores from a small, cheap proxy model rather than the target model itself. \citet{sorscher2022beyond} show, empirically and via a statistical-mechanics analysis of a toy model, that a good pruning metric can convert the usual power-law scaling of test error with dataset size into exponential scaling; \citet{zheng2023coverage} (CCS) show that pruning to the highest-difficulty examples alone hurts distributional coverage at high pruning rates and instead balance importance against coverage explicitly; \citet{maharana2024d2} (D2 Pruning) use a message-passing formulation over a similarity graph to balance the same trade-off. All of these commit to a fixed subset before or shortly after training starts; IES and TG-IES instead make a per-instance, per-epoch decision using the current trajectory.
+
+\textbf{Dynamic and online example selection.} \citet{loshchilov2015online} rank minibatches online by loss to bias sampling toward harder examples. \citet{katharopoulos2018not} use importance sampling to reduce gradient variance, building on \citet{needell2014stochastic}. \citet{jiang2019accelerating} (Selective-Backprop) skip backpropagation for examples with low relative loss via a probabilistic accept/reject rule, close in spirit to IES but formalized on a different argument (a probabilistic threshold on the loss distribution, versus a finite-difference criterion on the loss trajectory), with no theoretical treatment on either side. \citet{mindermann2022prioritized} (RHO-LOSS) select points simultaneously learnable, worth learning, and not yet learnt via a holdout-model criterion; \citet{bankes2024reducr} (REDUCR) extend this with class-priority reweighting for robustness, orthogonal to the calibration question here. \citet{qin2024infobatch} (InfoBatch) prune examples below the epoch-mean loss with probability $r$, rescaling kept low-score instances' gradients by $1/(1-r)$, annealing back to the full dataset for the final epochs; unlike IES/TG-IES it skips both forward and backward on a pruned example. \citet{qin2026alignprune} (AlignPrune) replace loss-magnitude ranking with a Dynamic Alignment Score (correlation between an example's loss trajectory and a reference trajectory) for label-noise robustness, a different objective than mastery-based removal; \citet{nagaraj2025coresets} use a related trajectory-correlation signal for one-shot coreset selection against a held-out reference, with convergence guarantees for the resulting subset -- the closest published criterion to IES/TG-IES's own signal, differing in using a held-out reference rather than a self-referential finite difference, and selecting once rather than every epoch. \citet{zhou2026bls} (BLS) use an EMA of loss as a cheap, signal-processing alternative to TG-IES's noise-calibrated $\delta$ for the same denoising problem. Concurrently, \citet{jin2026orderdp} (OrderDP) give a formal guarantee for dynamic pruning via an unbiased ranking surrogate with a lossless-convergence proof, a different mechanism than the per-instance stability bound here -- two different answers to the same open question rather than competitors on the same construction. \citet{zhu2026dppo} address an analogous unbiased-pruning problem for group-based RL policy optimization (GRPO rollout pruning for LLM reasoning), noted for completeness; its setting (sequence-level RL) is different enough that we do not attempt a direct comparison. The same question -- what to spend a gradient update on -- is asked one level up, over pretraining-data domains, in LLM pretraining \citep{xie2023doremi}, a parallel literature at a coarser granularity. \citet{wen2025grades} (GradES) stops updating individual transformer projection matrices once their gradient norm falls below a threshold, a per-parameter-group decision complementary to, rather than competing with, TG-IES's per-instance decision (\cref{app:vit}); we are not aware of a direct empirical comparison in either direction.
+
+\textbf{Curriculum learning.} \citet{bengio2009curriculum} order examples easy-to-hard over training; \citet{soviany2022curriculum} survey the resulting literature. This is complementary to IES/TG-IES: curriculum learning changes when an example enters training, while IES/TG-IES changes when it leaves.
+
+\textbf{Direct predecessor.} \citet{yuan2025instance} is the paper this work theoretically grounds; \cref{sec:intro} details the five gaps closed.
+
+\section{Extended Discussion of Assumptions}
+\label{app:assumptions-extended}
+
+\begin{assumption}[Uniform bounds on $c_i$]
+\label{ass:cbounds}
+There exist $0 < c_{\min} \le c_{\max} < \infty$ with $c_i \in [c_{\min},c_{\max}]$ for all $i$ (\cref{ass:geometric}'s amplitude).
+\end{assumption}
+
+\begin{assumption}[Bounded third derivatives]
+\label{ass:thirdderiv}
+There exists $M_3<\infty$ and a neighborhood $U$ of the GD trajectory such that for all $i$, all $\theta\in U$, and unit vectors $u,v,w$: $|\nabla^3 L_i(\theta)[u,v,w]| \le M_3$.
+\end{assumption}
+
+\begin{remark}[Why $\beta$-smoothness, and where it is used]
+\Cref{ass:smooth} caps how fast the gradient can change as parameters move; it is the standard lever turning a single-step bound into one holding over many steps. \Cref{app:multistep} uses it directly for exactly this purpose: a first attempt extending \cref{thm:safe}'s single-step bound to a multi-step bound. That attempt succeeds only partially -- a genuine but exponentially-loose bound, not a practically useful one over hundreds of epochs.
+\end{remark}
+
+\begin{remark}[Scope of the geometric-trajectory assumption]
+\Cref{ass:geometric} is a local, near-convergence approximation, not a global description of training: loss trajectories in practice are non-monotonic and noisy, and $r_i$ varies over time. \Cref{sec:level2}'s quartile analysis finds it a better approximation in the second half of training than the first.
+\end{remark}
+
+\begin{remark}[Noise-model realism]
+\Cref{ass:noise} is an idealization: SGD revisits overlapping minibatches, correlating noise across nearby $t$; \cref{ass:subgaussian} may also be violated, since deep-learning gradient noise can be heavy-tailed. Under correlated or heavy-tailed noise, \cref{thm:bv}'s variance formula becomes a lower bound and \cref{cor:threshold}'s tail bound may be optimistic. \Cref{sec:noise-validation} tests time-independence directly and finds the measured autocorrelation small and consistent with a detrending-method artifact rather than real correlation, correcting \cref{thm:bv} at $N{=}2$ by under $1.3\%$ even under the conservative reading.
+\end{remark}
+
+\begin{remark}[Why small rate dispersion]
+$r_i$ is instance $i$'s per-epoch decay rate; \cref{ass:dispersion} says different instances' rates do not spread too far from a common $\bar r$, letting \cref{prop:cv} treat $\CV(X(2))$ as a small perturbation of $\CV(X(1))$ via a first-order Taylor argument valid only when the spread is genuinely small. \Cref{app:counterexample} shows explicitly what breaks when it is not.
+\end{remark}
+
+\begin{remark}[Why bounded $c_i$]
+$c_i$ is instance $i$'s excess-loss amplitude; bounding it away from $0$ and $\infty$ keeps $\CV(\cdot)$ well-defined and the perturbation constant in \cref{prop:cv} finite, rather than dominated by one pathological instance.
+\end{remark}
+
+\begin{remark}[Why bounded third derivatives]
+This bounds how quickly curvature itself can change, keeping \cref{thm:curvature}'s Taylor remainder genuinely smaller than the $O(\eta^2)$ curvature term it isolates; without it, ``curvature is $O(\eta^2)$, drift is $O(\eta)$'' would not be a controlled statement.
+\end{remark}
+
+\begin{remark}[An unused assumption, kept for future work]
+\label{ass:envelope-app}
+A bounded gradient envelope on a window ($G := \sup_t\|g^{(t)}\|<\infty$) is a natural companion to $\beta$-smoothness for a future contraction argument bounding trajectory divergence over many steps (\cref{rem:shared-traj}), but no theorem, corollary, or proof in this paper's current form invokes it. We name it here rather than silently omit it.
+\end{remark}
+
+\section{Full Proofs}
+\label{app:proofs}
+
+\begin{proof}[Proof of \cref{lem:geomdiff}]
+Induction on $N$. \emph{Base case} ($N=0$): $\Delta^0(L_i^{(t)}-L^*) = c_i r_i^t$. \emph{Inductive step.} Assume $\Delta^{N-1}(L_i^{(t)}-L^*) = c_i r_i^{t-(N-1)}(r_i-1)^{N-1}$. Then
+\begin{align*}
+\Delta^N(L_i^{(t)}-L^*) &= \Delta^{N-1}(L_i^{(t)}-L^*) - \Delta^{N-1}(L_i^{(t-1)}-L^*) \\
+&= c_i\, r_i^{t-N+1}(r_i-1)^{N-1} - c_i\, r_i^{t-N}(r_i-1)^{N-1} \\
+&= c_i(r_i-1)^{N-1}\big(r_i^{t-N+1}-r_i^{t-N}\big) = c_i\,r_i^{t-N}(r_i-1)^N,
+\end{align*}
+which is the claim for $N$.
+\end{proof}
+
+\begin{proof}[Proof of \cref{thm:ratio}]
+By \cref{lem:geomdiff}, $\Delta^N(L_i^{(t)}-L^*) = c_i\, r_i^{t-N}(r_i-1)^N$ and $\Delta^{N-1}(L_i^{(t)}-L^*) = c_i\, r_i^{t-N+1}(r_i-1)^{N-1}$. Dividing,
+\[
+\frac{\Delta^N(L_i^{(t)}-L^*)}{\Delta^{N-1}(L_i^{(t)}-L^*)} = \frac{r_i^{t-N}}{r_i^{t-N+1}}\cdot(r_i-1) = r_i^{-1}(r_i-1) = \frac{r_i-1}{r_i},
+\]
+where $c_i$ cancels; the denominator is nonzero whenever $c_i>0$, $r_i\in(0,1)$, $N\ge1$.
+\end{proof}
+
+\begin{proof}[Proof of \cref{prop:cv}]
+\emph{Step 1 (pointwise perturbation).} Let $f_1(r)=r^{t-1}(1-r)$, $f_2(r)=r^{t-2}(1-r)^2$ on $[\bar r-\delta_r,\bar r+\delta_r]$; both are smooth there, so $L_N := \sup_r|f_N'(r)| < \infty$. Writing $r_i=\bar r+\epsilon_i$, $|\epsilon_i|\le\delta_r$, and $\Delta_i^{(N)} := f_N(r_i)-f_N(\bar r)$, the mean value theorem gives $|\Delta_i^{(N)}| \le L_N\delta_r$. With $Y_i^{(N)} := c_i f_N(\bar r)$, $E_i^{(N)} := c_i\Delta_i^{(N)}$: $X_i(N) = Y_i^{(N)} + E_i^{(N)}$, $|E_i^{(N)}| \le c_{\max}L_N\delta_r$.
+
+\emph{Step 2 (mean perturbation).} $|\mathbb E[X(N)]-\mathbb E[Y(N)]| \le c_{\max}L_N\delta_r$.
+
+\emph{Step 3 (variance perturbation).} $X_i(N)^2 - Y_i(N)^2 = E_i^{(N)}(2Y_i^{(N)} + E_i^{(N)})$ is $O(\delta_r)$ uniformly, so $|\Var(X(N)) - \Var(Y(N))| \le (A_N+B_N)\delta_r$ for finite $A_N,B_N$, hence $|\sqrt{\Var(X(N))} - \sqrt{\Var(Y(N))}| \le D_N\delta_r$.
+
+\emph{Step 4 (Lipschitz bound on CV).} $\phi(\mu,s)=s/\mu$ is $C^1$ with bounded gradient $\Lambda_N$ on the relevant compact region, so $|\CV(X(N)) - \CV(Y(N))| \le \Lambda_N(c_{\max}L_N + D_N)\,\delta_r$.
+
+\emph{Step 5.} $\CV(Y(N)) = \sqrt{\Var(c)}/\mathbb E[c]$ is identical for $N=1,2$ ($f_N(\bar r)$ cancels in the ratio); applying Step 4 to both and the triangle inequality gives the claim with $C := \max_N\Lambda_N(c_{\max}L_N+D_N)$, made explicit in \cref{app:constants}.
+\end{proof}
+
+\begin{proof}[Proof of \cref{thm:bv}]
+By linearity, $\Delta^N\tilde L_i^{(t)} = a+b$ with $a:=\Delta^N L_i^{(t)} = c_i r_i^{t-N}(r_i-1)^N$ (deterministic, \cref{lem:geomdiff}) and $b:=\Delta^N\xi_{i,t} = \sum_{k=0}^N(-1)^k\binom Nk\xi_{i,t-k}$. Then $\mathbb E[(\Delta^N\tilde L_i^{(t)})^2] = a^2 + 2a\mathbb E[b] + \mathbb E[b^2]$. By \cref{ass:noise}, $\mathbb E[b]=0$; since the $\xi_{i,t-k}$ are independent with variance $\sigma^2$, $\mathbb E[b^2] = \sigma^2\sum_k\binom Nk^2 = \sigma^2\binom{2N}N$ (Vandermonde). Combining gives \cref{eq:bv}.
+\end{proof}
+
+\begin{proof}[Proof of \cref{prop:mse}]
+Write $\alpha_i := (1-r_i)^2/r_i^2$, so $r_i^{2(t-N)}(r_i-1)^{2N} = r_i^{2t}\alpha_i^N$ and $\mathrm{MSE}(N,t) = c_i^2 r_i^{2t}\alpha_i^N + \binom{2N}N\sigma^2$. Using $\binom21=2,\binom42=6,\binom63=20$:
+$\mathrm{MSE}(1,t)-\mathrm{MSE}(2,t) = c_i^2r_i^{2t}\alpha_i(1-\alpha_i)-4\sigma^2$, giving \cref{eq:mse12}; $\mathrm{MSE}(3,t)-\mathrm{MSE}(2,t) = 14\sigma^2 - c_i^2r_i^{2t}\alpha_i^2(1-\alpha_i)$, giving \cref{eq:mse23}. For $\alpha_i<1$ ($r_i>\tfrac12$), $(1-\alpha_i)>0$, so both impose genuine two-sided bounds combining into the band above (\cref{eq:mse12,eq:mse23}); non-emptiness holds since $4\alpha_i\le14$ for every $\alpha_i<1$.
+\end{proof}
+
+\begin{proof}[Proof of \cref{cor:threshold}]
+By \cref{ass:noise}, $\Var(\Delta^2\xi_{i,t}) = \Var(\xi_{i,t}-2\xi_{i,t-1}+\xi_{i,t-2}) = \sigma^2(1+4+1) = 6\sigma^2$, matching \cref{thm:bv} at $N=2$. The Gaussian approximation is standard. Under \cref{ass:subgaussian}, $\Delta^2\xi_{i,t}$ is a linear combination of independent $\sigma^2$-sub-Gaussian variables with squared coefficients summing to $6$, hence $6\sigma^2$-sub-Gaussian; the standard tail inequality gives $2\exp(-k^2/2)$.
+\end{proof}
+
+\begin{proof}[Proof of \cref{thm:curvature}]
+Let $\Delta\theta^{(s)}=-\eta g^{(s)}$ (full-batch). Third-order Taylor expansion with remainder (\cref{ass:thirdderiv}):
+\[
+L_i(\theta^{(s)}+\Delta\theta^{(s)}) = L_i^{(s)} + \langle g_i^{(s)},\Delta\theta^{(s)}\rangle + \tfrac12\Delta\theta^{(s)\top}H_i(\theta^{(s)})\Delta\theta^{(s)} + r_{i,s}, \quad |r_{i,s}|\le\tfrac{M_3}6\eta^3\|g^{(s)}\|^3.
+\]
+Applying at $s=t-1,t-2$ and forming $\Delta^2 L_i^{(t)} = [L_i^{(t)}-L_i^{(t-1)}]-[L_i^{(t-1)}-L_i^{(t-2)}]$, the $O(\eta)$ terms combine into the drift term and the $O(\eta^2)$ terms into the curvature difference; $R_{i,t}:=r_{i,t-1}-r_{i,t-2}$ and the triangle inequality give the stated remainder bound.
+\end{proof}
+
+\begin{proof}[Proof of \cref{thm:safe}]
+At each $t\in[T-K,T]$ both runs use \cref{eq:activegrad} on the same reference trajectory, so the only difference between update directions is the term $\frac1N g_i^{(t)}$: $\|\theta^{(t+1)}_{\mathrm{full}} - \theta^{(t+1)}_{\mathrm{rem}}\| \le \frac{\eta}{N}\|g_i^{(t)}\| \le \frac{\eta\varepsilon}{N}$. Summing over $K$ steps (triangle inequality) gives $\|\theta^{(T)}_{\mathrm{full}} - \theta^{(T)}_{\mathrm{rem}}\| \le K\eta\varepsilon/N$; the test-loss bound follows from $\beta_{\mathrm{test}}$-Lipschitzness.
+\end{proof}
+
+\begin{proof}[Proof of \cref{cor:kstar}]
+$\beta_{\mathrm{test}} K \eta \varepsilon/N \le \tau \iff K \le N\tau/(\beta_{\mathrm{test}}\eta\varepsilon)$; the largest integer satisfying this is $K_{\mathrm{safe}} = \lfloor N\tau/(\beta_{\mathrm{test}}\eta\varepsilon)\rfloor$ (a ceiling would round up past the constraint).
+\end{proof}
+
+\begin{proof}[Proof of \cref{lem:descent}]
+By $\Lambda$-smoothness (descent lemma), $f(\theta-\tfrac1\Lambda\nabla f(\theta)) \le f(\theta) - \tfrac1{2\Lambda}\|\nabla f(\theta)\|^2$. Combined with $f(\theta^*)\le f(\theta-\tfrac1\Lambda\nabla f(\theta))$: $f(\theta^*) \le f(\theta)-\tfrac1{2\Lambda}\|\nabla f(\theta)\|^2$, which rearranges to the claim.
+\end{proof}
+
+\begin{proof}[Proof of \cref{thm:bridge}]
+By \cref{lem:descent}, $\|g_i^{(t)}\|^2 \le 2\Lambda_i(L_i^{(t)}-L^*) = 2\Lambda_i c_i r_i^t$ (\cref{ass:geometric}). By \cref{lem:geomdiff} at $N=2$, $\Delta^2 L_i^{(t)} = c_i r_i^{t-2}(1-r_i)^2$, so $c_i r_i^t = (r_i/(1-r_i))^2\Delta^2 L_i^{(t)}$. Substituting gives $\|g_i^{(t)}\|^2 \le 2\Lambda_i(r_i/(1-r_i))^2\Delta^2 L_i^{(t)}$, and taking square roots gives \cref{eq:bridge}.
+\end{proof}
+
+\begin{proof}[Proof of \cref{cor:bridgeprob}]
+$\Delta^2 L_i^{(t)} = \hat S_i \mp \Delta^2\xi_{i,t}$, so $\hat S_i<\delta$ with $|\Delta^2\xi_{i,t}|\le k\sqrt6\sigma$ implies $\Delta^2 L_i^{(t)} < \delta'$, hence $\|g_i^{(t)}\|<\varepsilon_i(\delta')$ by \cref{thm:bridge}. So the event in the statement is contained in $\{|\Delta^2\xi_{i,t}|>k\sqrt6\sigma\}$, bounded by \cref{cor:threshold} at $2\exp(-k^2/2)$.
+\end{proof}
+
+\section{Toward a Multi-Step Trajectory-Divergence Bound}
+\label{app:multistep}
+
+\Cref{rem:shared-traj} names this paper's central open theoretical question: \cref{thm:safe} bounds only a single removal decision's instantaneous perturbation on a shared reference trajectory, not how far Algorithm~\ref{alg:tgies}'s actual, multi-removal trajectory drifts from the full-data one over an entire run. This appendix reports a first, honest attempt using only assumptions already in this paper.
+
+\textbf{Setup.} Let $\theta_t^{\mathrm{full}}$ follow full-batch GD on the population loss, $\theta_{t+1}^{\mathrm{full}} = \theta_t^{\mathrm{full}} - \eta\, g^{\mathrm{full}}(\theta_t^{\mathrm{full}})$, $g^{\mathrm{full}}(\theta) := \frac1N\sum_i g_i(\theta)$, and $\theta_t^{\mathrm{TG\text{-}IES}}$ follow Algorithm~\ref{alg:tgies}'s actual update, $\theta_{t+1}^{\mathrm{TG\text{-}IES}} = \theta_t^{\mathrm{TG\text{-}IES}} - \eta\, \hat g_t(\theta_t^{\mathrm{TG\text{-}IES}})$, $\hat g_t(\theta) := \frac1N\sum_{i\in A_t}g_i(\theta)$, where $A_t$ is the algorithm's own, evolving active set. Both start at $\theta_0$; define $e_t := \theta_t^{\mathrm{full}} - \theta_t^{\mathrm{TG\text{-}IES}}$, $e_0=0$.
+
+\begin{proposition}[Exponential trajectory-divergence bound]
+\label{prop:multistep}
+Suppose \cref{ass:smooth} holds, and every excluded instance $i\notin A_t$ satisfies $\|g_i(\theta_t^{\mathrm{TG\text{-}IES}})\| < \varepsilon_i$ at every step $t$ along the algorithm's actual trajectory. Let $\bar\varepsilon_t := \frac1N\sum_{i\notin A_t}\varepsilon_i$, $\varepsilon_{\max} := \max_i \varepsilon_i$. Then
+\begin{equation}
+\label{eq:multistep}
+\|e_t\| \;\le\; \eta\sum_{s=0}^{t-1}(1+\eta\beta)^{t-1-s}\bar\varepsilon_s \;\le\; \frac{\varepsilon_{\max}}{\beta}\Big[(1+\eta\beta)^t - 1\Big].
+\end{equation}
+\end{proposition}
+
+Splitting the per-step gradient difference into a same-map term (bounded by $\beta$-smoothness) and a set-difference term (bounded by the gradient-floor hypothesis), a triangle-inequality recursion in $\|e_t\|$ unrolls to this closed form. The bound is exponential in $t$ and vacuous over a full $\sim\!200$-epoch/many-thousand-step run for any realistic $\beta$: useful precisely because it is a \emph{correct negative-ish} result, explaining mechanistically why a smoothness-only (Lipschitz, non-contractive) argument cannot give a practically useful multi-step bound, rather than merely asserting the gap is hard.
+
+\begin{remark}[What would fix this]
+\label{rem:contraction-direction}
+\Cref{sec:kstartraj}'s measurements show absolute divergence \emph{plateauing} rather than growing without bound -- qualitatively inconsistent with \cref{prop:multistep}'s exponential worst case, consistent instead with a \emph{contractive} map. If $L$ were additionally $\mu$-strongly convex (or satisfied a local Polyak-\L{}ojasiewicz condition) along the trajectory, the GD map is a contraction with factor $\rho=\max(|1-\eta\mu|,|1-\eta\beta|)<1$, replacing this appendix's $(1+\eta\beta)$ expansion factor with $\rho<1$ in the same recursion, giving a bounded, $t$-independent limit $\eta\varepsilon_{\max}/(1-\rho)$ instead of exponential growth -- qualitatively matching \cref{sec:kstartraj}'s plateau. This needs (i) adapting the standard co-coercivity argument to the $g^{\mathrm{full}}$-vs-$\hat g_t$ split, not just the textbook two-point case, and (ii) justifying local strong convexity or a PL condition along a deep network's actual trajectory -- an assumption with real literature behind it in restricted regimes (late-training, over-parameterized, near a broad minimum) but one we have not verified for this paper's architectures. We flag this as the concrete next step rather than derive it here.
+\end{remark}
+
+\section{An Aggregate Refinement: Population-Level Gradient Cancellation}
+\label{app:aggregate}
+
+\Cref{prop:multistep} bounds the per-step set-difference term via the triangle inequality over per-instance gradient-norm bounds $\varepsilon_i$ -- exactly the hypothesis \cref{app:reactprobe} finds violated by roughly half the excluded set at every snapshot. This section derives what that term actually is, shows the triangle-inequality step is provably loose whenever excluded gradients do not all point the same way, and measures the resulting slack directly, addressing \cref{app:reactprobe}'s "natural but unchecked candidate" reconciliation and \cref{app:limitations-extended}'s item (5).
+
+\textbf{An exact identity.} Write $R_t := D\setminus A_t$ for the excluded set at step $t$, $\pi_t := |R_t|/N \in[0,1]$ for the exclusion fraction (already logged every epoch as \texttt{total\_excluded\_now/N}), and $\mu_t(\theta) := \frac{1}{|R_t|}\sum_{i\in R_t} g_i(\theta)$ for the mean gradient of the excluded set ($\mathbf0$ if $R_t=\emptyset$). Then, exactly, no approximation:
+\begin{equation}
+\label{eq:aggidentity}
+g^{\mathrm{full}}(\theta) - \hat g_t(\theta) = \frac1N\sum_{i\in R_t} g_i(\theta) = \pi_t\,\mu_t(\theta).
+\end{equation}
+
+\begin{lemma}[The per-instance bound is a relaxation of the true term]
+\label{lem:jensen}
+For any $\theta$, $\|\mu_t(\theta)\| \le \frac{1}{|R_t|}\sum_{i\in R_t}\|g_i(\theta)\|$ (triangle inequality / Jensen), with equality iff every $g_i(\theta)$, $i\in R_t$, points in exactly the same direction. If $\|g_i(\theta)\|<\varepsilon_i$ for all $i\in R_t$, then $\pi_t\|\mu_t(\theta)\| \le \pi_t\cdot\frac1{|R_t|}\sum_{i\in R_t}\varepsilon_i = \bar\varepsilon_t$, \cref{prop:multistep}'s own quantity.
+\end{lemma}
+This is not a new assumption on top of \cref{prop:multistep} -- it shows that bound already over-approximates the true recursion input $\pi_t\mu_t(\theta)$ by exactly the amount excluded gradients cancel directionally, and that this cancellation is measurable directly, without ever estimating individual $\varepsilon_i$.
+
+\begin{assumption}[Aggregate gradient floor]
+\label{ass:aggfloor}
+There exists $\bar\varepsilon\ge0$ with $\|\mu_t(\theta_t^{\mathrm{TG\text{-}IES}})\|\le\bar\varepsilon$ for every step $t$ along the algorithm's actual trajectory.
+\end{assumption}
+Unlike \cref{prop:multistep}'s per-instance hypothesis, \cref{ass:aggfloor} does not require any individual excluded gradient to be small -- only that the excluded set's gradients do not all point the same way strongly enough to add up. It can hold when the per-instance hypothesis fails on half the excluded set (\cref{app:reactprobe}); it could in principle fail even when every individual gradient is small, if they happened to be exactly aligned, though nothing in the measurement below suggests that is what happens here.
+
+\begin{proposition}[Aggregate-floor multi-step bound]
+\label{prop:aggmultistep}
+Suppose \cref{ass:smooth,ass:aggfloor} hold, and let $\bar\pi:=\max_t\pi_t$. Then, by the same same-map/set-difference split and triangle-inequality recursion as \cref{prop:multistep} (only the set-difference term's bound changes, via \cref{eq:aggidentity}),
+\begin{equation}
+\label{eq:aggmultistep}
+\|e_t\| \;\le\; \eta\bar\pi\bar\varepsilon\sum_{s=0}^{t-1}(1+\eta\beta)^{t-1-s} \;=\; \frac{\bar\pi\bar\varepsilon}{\beta}\Big[(1+\eta\beta)^t-1\Big].
+\end{equation}
+\end{proposition}
+This is the same exponential form as \cref{prop:multistep}: \cref{lem:jensen} shows the leading constant can only shrink ($\bar\pi\bar\varepsilon\le\max_t\bar\varepsilon_t$), never grow, but the expansion factor $(1+\eta\beta)^t$ is unchanged, so this does \emph{not} resolve \cref{rem:contraction-direction}'s structural vacuousness over hundreds of epochs by itself -- its value is a tighter, directly-measurable leading constant, not a qualitatively different bound.
+
+\begin{corollary}[Aggregate conditional exclusion bound]
+\label{cor:kstaragg}
+Under the shared-reference idealization of \cref{thm:safe} applied to the whole excluded set $R_t$ rather than one instance, tolerance $\tau$ is kept ($|L_{\mathrm{test}}(\theta^{(T)}_{\mathrm{full}})-L_{\mathrm{test}}(\theta^{(T)}_{\mathrm{rem}})|\le\tau$) for any $K\le K_{\mathrm{safe}}^{\mathrm{agg}} := \big\lfloor \tau/(\beta_{\mathrm{test}}\eta\bar\pi\bar\varepsilon) \big\rfloor$ -- \cref{cor:kstar}'s formula without the factor of $N$, since $\bar\varepsilon$ is already a per-capita quantity rather than one raw gradient norm.
+\end{corollary}
+
+\textbf{Direct measurement.} We extend the reactivation probe (\cref{app:reactprobe}) to also accumulate, alongside each probed instance's individual gradient, the running sum of the raw gradient \emph{vectors} across the $300$-instance probe sample, reporting $\|\mu_t\|$ (computed on the probe subsample, an estimate of the true population quantity) next to the already-reported mean$_i\|g_i^{(t)}\|$ (primary cell, self-calibrated $\delta$, 3 seeds, tagged \texttt{\_reactprobe2}; identical training run to \cref{app:reactprobe}'s \texttt{\_reactprobe}, purely additional instrumentation -- accuracy/savings match to within run-to-run noise, confirming the extra accumulation does not perturb training).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_aggregate_bound.png}
+\caption{Left: mean$_i\|g_i^{(t)}\|$ (per-instance) vs.\ $\|\mu_t\|$ (aggregate) vs.\ the calibrated floor $\varepsilon_0$, primary cell, 3 seeds (light: per-seed; bold: 3-seed mean). Right: the cancellation ratio $\|\mu_t\|/\text{mean}_i\|g_i^{(t)}\|$ at each probed epoch.}
+\label{fig:aggregatebound}
+\end{figure}
+
+\textbf{Finding: partial cancellation is real, but the resulting bound still does not cover this paper's own $K^*$.} Pooling all $9$ probed epochs across $3$ seeds ($27$ (epoch, seed) points; accuracy/savings for these runs, $94.73\pm0.02\%$/$53.66\pm0.09\%$, match \cref{tab:primary}'s unprobed TG-IES numbers closely, confirming this extra instrumentation does not perturb training), the mean cancellation ratio is $\|\mu_t\|/\mathrm{mean}_i\|g_i^{(t)}\| = 0.34$, ranging $0.26$--$0.47$ epoch-to-epoch (\cref{fig:aggregatebound}) -- real, substantial directional cancellation (\cref{lem:jensen}'s inequality is far from tight, not saturated), consistent with the ``diluted by averaging'' half of \cref{app:reactprobe}'s previously-unverified reconciliation candidate. But cancellation alone is not the same as a small aggregate, and \cref{cor:kstaragg}'s own honest, sup-based constants tell a less comforting story: using the single largest observed $\|\mu_t\|$ across the whole horizon ($\bar\varepsilon=0.147$) and the largest observed exclusion fraction ($\bar\pi=0.881$) -- the same conservative floor-over-a-horizon convention \cref{tab:ksafe} already uses for the per-instance bound -- gives $K_{\mathrm{safe}}^{\mathrm{agg}}=\lfloor5.5\rfloor=5$, \emph{smaller} than the $K^*{=}15$ ceiling used in every run in this paper. Unlike the per-instance $K_{\mathrm{safe}}$ (\cref{rem:ksafe-nonbinding}, $\approx\!1.2$M, wildly non-binding), the aggregate refinement is tight enough to be genuinely violated at this paper's own configuration, not merely slack. This is not a contradiction with \cref{sec:kstartraj}'s empirical plateau: \cref{prop:aggmultistep}'s bound, like \cref{prop:multistep}'s, is still exponential in $t$ and built by the same worst-case triangle-inequality recursion, so a bound constructed to hold under adversarial per-step alignment can be loose enough to be violated on paper while the one, actually-realized trajectory still stays bounded -- exactly \cref{app:multistep}'s ``correct but vacuous'' story, now reproduced at the aggregate level with a measured, not merely asserted, constant. We read this as narrowing \cref{rem:kmismatch}'s gap, not closing it: the cancellation this section set out to check for is real and directionally as hypothesized, but it is not large enough, combined with this paper's actual exclusion fractions, for \cref{cor:kstaragg}'s worst-case bound to cover the patience this paper actually uses -- only the direct trajectory instrumentation of \cref{sec:kstartraj} does that, empirically rather than via a bound.
+
+\section{Explicit Constants for \cref{prop:cv}}
+\label{app:constants}
+
+Recall from \cref{ass:cbounds} that $\Var(c) \le (c_{\max}-c_{\min})^2/4 =: V_c$. One concrete choice of the constant in \cref{prop:cv} is
+\[
+C(t,\bar r,c_{\min},c_{\max}) := \max_{N\in\{1,2\}}\left(\frac{c_{\max}L_N}{c_{\min}f_N(\bar r)} + \frac{c_{\max}L_N}{\sqrt{V_c}\,c_{\min}f_N(\bar r)+10^{-12}}\right),
+\]
+where $f_1(r)=r^{t-1}(1-r)$, $f_2(r)=r^{t-2}(1-r)^2$, $L_N=\sup_{r\in[\bar r-\delta_r,\bar r+\delta_r]}|f_N'(r)|$. The $10^{-12}$ guards against division by zero when all $c_i$ are equal ($V_c=0$).
+
+\section{Counterexample: Global CV Monotonicity Can Fail}
+\label{app:counterexample}
+
+A global claim $\CV(\Delta^2 L) \le \CV(\Delta^1 L)$ (without \cref{ass:dispersion}) can fail under wide rate dispersion. Take $c_1=c_2=1$, $L^*=0$, $r_1=0.01$, $r_2=0.99$, $t=10$:
+\[
+\Delta^1(L_1^{(10)})\approx-10^{-18},\ \Delta^1(L_2^{(10)})\approx-0.0091,\qquad
+\Delta^2(L_1^{(10)})\approx10^{-16},\ \Delta^2(L_2^{(10)})\approx9.2{\times}10^{-5}.
+\]
+The cross-instance magnitude ratio is order $10^{16}$ at $N{=}1$ and order $10^{11}$ at $N{=}2$: dispersion (CV across the two instances) \emph{increases}, not decreases, from $N{=}1$ to $N{=}2$ here, confirming \cref{ass:dispersion} is an important assumption, not a technicality.
+
+\section{Extended Practical Implementation Notes}
+\label{app:practical}
+
+\textbf{Recalibration schedule.} $\delta$ and $K^*$ are recalibrated once, at epoch 30, then held fixed, rather than repeating every $\Delta$ epochs: repeating was found counterproductive, since a shrinking noise floor $\hat\sigma$ re-tightens $\delta$ over time and every recalibration resets in-progress $K^*$-window counts, together strangling savings. This is an empirical finding, not a theorem (\cref{sec:limitations}).
+
+\textbf{Gradient-norm floor estimate.} $\varepsilon_0$ is a low percentile (default 20th) of a cheap last-layer proxy $\|\mathrm{softmax}(z_i)-\mathrm{onehot}(y_i)\|\cdot\|\mathrm{feat}_i\|$ over a subsample of the active set (capped at 8192 instances), cutting recalibration cost roughly $6\times$ versus a full backward pass without materially changing the percentile estimate.
+
+\textbf{Consistent forward-pass discipline.} Following \citet{yuan2025instance}'s stated Algorithm~1 rather than the shipped implementation, all instances (active and passive) are forwarded in the same \texttt{train()} mode every epoch (passive under \texttt{no\_grad}), avoiding a train/eval batch-normalization mismatch \citep{ioffe2015batch}.
+
+\textbf{A rounding-direction correction, with no effect on reported results.} \Cref{cor:kstar} rounds $K_{\mathrm{safe}}$ down; the implementation generating every run in this paper used a ceiling instead, caught only while finalizing this version. Checking every run's logged $K^*$ trajectory: in every case $K^*$ reaches $\mathrm{max\_kstar}=15$ immediately upon recalibration, i.e., the uncapped value already exceeds the clamp before rounding is applied, so ceiling vs.\ floor changes nothing here. The implementation now uses the floor consistent with \cref{cor:kstar}.
+
+\textbf{Normalization: $1/N$ vs.\ $1/|A_t|$ is not a live ablation under this paper's configuration.} \Cref{eq:activegrad}'s $1/N$-scaled active-set gradient and shipped IES's $1/|A_t|$ mean differ, in principle, whenever a training step processes fewer than $N$ active instances at once. Every method here trains with fixed-size minibatches (\texttt{batch\_size}$=64$) and \texttt{drop\_last=True} whenever the active set is at least one minibatch, so every optimizer step in every run sees a \emph{full} batch of exactly $64$ instances, and the per-step loss (\texttt{losses.sum()/batch\_size} for TG-IES, \texttt{losses.mean()} for the other three methods) is then numerically identical between the two normalizations; \texttt{drop\_last} discards a final undersized batch outright rather than processing it under either convention. We checked this holds throughout, not just argued it: across all $44$ distinct TG-IES runs in this paper, the smallest active-set size ever reached is $2{,}965$ (VGG-16, seed 1), $46\times$ \texttt{batch\_size}, so no run here ever executes a step where the two normalizations could numerically differ. Running a normalization ablation under this paper's own configuration would therefore measure exactly zero effect by construction, not because the choice is unimportant to the theory -- \cref{eq:activegrad} is exactly what \cref{thm:safe}'s bound needs (\cref{sec:level4}) -- but because no run here ever reaches the regime (active set below one minibatch) where the two formulas' predictions part ways. Testing that would need a setting engineered to push the active set below \texttt{batch\_size} (a far more aggressive $K^*$-sweep than \cref{sec:kstartraj}'s, or a much smaller \texttt{batch\_size}), which we have not run.
+
+\section{Full Zero-Shot Transfer Table}
+\label{app:zeroshot}
+
+\begin{table}[h]
+\caption{TG-IES, every distinct (dataset, architecture, optimizer/schedule) cell in this paper, same four fixed calibration constants throughout. Mean $\pm$ std over seeds where $n{>}1$; asterisked rows are single-seed by design (\cref{sec:lrmechanism}'s matched-epoch schedule comparison).}
+\label{tab:zeroshot}
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Cell & $n$ & Acc.\ (\%) & Saved (\%) \\
+\midrule
+CIFAR-10 / ResNet-18 / SGD-exp (primary) & 3 & $94.85\pm0.28$ & $53.63\pm0.30$ \\
+CIFAR-10 / ResNet-18 / SGD-fixed & 3 & $91.91\pm0.18$ & $29.27\pm0.30$ \\
+CIFAR-10 / ResNet-18 / SGD-linear & 1 & $94.85^*$ & $32.05^*$ \\
+CIFAR-10 / ResNet-18 / SGD-step & 1 & $94.44^*$ & $43.52^*$ \\
+CIFAR-10 / ResNet-18 / SGD-cosine & 1 & $94.73^*$ & $23.15^*$ \\
+CIFAR-10 / ResNet-18 / Adam & 3 & $92.44\pm0.10$ & $30.18\pm0.62$ \\
+CIFAR-10 / VGG-16 / SGD-exp & 3 & $93.11\pm0.14$ & $54.43\pm0.12$ \\
+CIFAR-10 / DenseNet-121 / SGD-exp & 3 & $95.28\pm0.09$ & $54.53\pm0.66$ \\
+CIFAR-100 / ResNet-18 / SGD-exp & 3 & $76.01\pm0.08$ & $57.76\pm0.04$ \\
+CIFAR-10 / ViT-Tiny / AdamW-wc & 3 & $83.71\pm0.47$ & $25.52\pm0.26$ \\
+CIFAR-100 / ViT-Tiny / AdamW-wc & 3 & $58.56\pm0.47$ & $26.28\pm0.14$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The savings figure varies substantially across cells ($23$--$58\%$), as it should: schedule-, dataset-, and architecture-dependent mechanisms (\cref{sec:lrmechanism,app:adam,app:vit}) directly cause this variation. What does not vary is the calibration procedure: this table was assembled with no per-cell constant lookup, because there is none to look up.
+
+\section{Second Optimizer: Adam}
+\label{app:adam}
+
+\begin{table}[h]
+\caption{ResNet-18, CIFAR-10, Adam, mean $\pm$ std, 3 seeds.}
+\label{tab:adam}
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+Method & Test Acc.\ (\%) & Backprop Saved (\%) \\
+\midrule
+Baseline & $92.91\pm0.06$ & $0.03\pm0.00$ \\
+IES (shipped) & $92.61\pm0.10$ & $56.02\pm0.22$ \\
+IES (literal) & $92.42\pm0.10$ & $\mathbf{60.09\pm0.29}$ \\
+\lose{TG-IES (ours)} & \lose{$92.44\pm0.10$} & \lose{$30.18\pm0.62$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Adam \citep{kingma2015adam} is a second, more pronounced instance of the fixed-LR-style pattern of \cref{sec:results}: both IES variants save more ($56.0$--$60.1\%$) than TG-IES's $30.2\%$, at accuracy within $0.02$--$0.17$ points of TG-IES's (\cref{app:stats}: the accuracy gap vs.\ IES (literal) is not distinguishable from zero at $n=3$, while the saved-\% deficit is consistent in sign across all 3 seeds). Adam and fixed-LR SGD share the structural property distinguishing them from every cell where TG-IES leads: neither has the exponential schedule's large, steadily-decaying learning rate. We report this as an open empirical pattern, not an explained one; \cref{sec:lrmechanism} proposes and checks a candidate mechanism against the logged record.
+
+\section{Toward a Mechanism: The Drift Term Under Non-Decaying Learning Rates}
+\label{sec:lrmechanism}
+
+\Cref{thm:curvature} decomposes $\Delta^2 L_i^{(t)} = \eta_t D_i^{(t)} + O(\eta_t^2) + R_{i,t}$, $D_i^{(t)} := \langle g_i^{(t-2)},g^{(t-2)}\rangle - \langle g_i^{(t-1)},g^{(t-1)}\rangle$. Under the exponential schedule, $\eta_t\to0$ drives the whole drift term toward zero regardless of $D_i^{(t)}$'s own decay; under a non-decaying schedule (fixed-LR SGD, or Adam's lack of scalar-$\eta$ decay), only $D_i^{(t)}\to0$ on its own can shrink it, which \cref{ass:geometric}'s geometric picture gives no particular reason to expect on any fixed timetable. This predicts $\delta$ should calibrate smaller wherever $\eta$ is smaller, and fewer instances should reach $K^*{=}15$ consecutive low-signal epochs. Both hold in the logged data: at epoch $31$, $\delta$ recalibrates to $0.01597$ (exponential, $\eta_{31}{\approx}0.0282$) vs.\ $0.00247$ (fixed-LR, $6.5\times$ smaller) and $0.000257$ (Adam, $62\times$ smaller); by training's end the exponential run excludes $87.4\%$ of instances vs.\ $42.0\%$ (fixed-LR) and $45.6\%$ (Adam), matching the backprop-saved gap.
+
+\textbf{Direct instrumentation of $D_i^{(t)}$.} A diagnostic run computing $g^{(t)}$, every $L_i^{(t)}$, and $\langle g_i^{(t)},g^{(t)}\rangle$ for 300 fixed instances, baseline training, all three schedules, \emph{complicates} the ``drift dominates'' reading: $\eta_tD_i^{(t)}$ correlates only weakly with the observed $\Delta^2L_i^{(t)}$ (Pearson $r=0.34,0.37,0.23$ for exponential/fixed/Adam), and its magnitude does not dominate the combined curvature-plus-remainder term (ratio $0.69\times$, $0.32\times$, and effectively $0\times$ respectively) -- the opposite of a literal ``drift dominates'' reading, and it weakens further in the last training quarter (\cref{fig:driftvalidation}). We read this as refining, not refuting, \cref{thm:curvature}: the $O(\eta)$-vs-$O(\eta^2)$ ordering is asymptotic as $\eta\to0$, and at this network's actual step sizes ($\eta$ up to $0.1$) the curvature term is evidently not negligible in absolute terms. The qualitative argument above only requires drift to \emph{scale} with $\eta_t$, which this does not contradict; but $\Delta^2L_i^{(t)}$ being \emph{well-approximated by} $\eta_tD_i^{(t)}$ alone is not supported, and \cref{sec:level3}'s framing is corrected accordingly.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_drift_term_validation.png}
+\caption{Direct instrumentation of $\Delta^2 L_i^{(t)}=\eta_tD_i^{(t)}+O(\eta_t^2)+R_{i,t}$, fixed 300-instance subset, baseline training, all valid epochs, one panel per schedule. Dashed line: $y=x$. The drift term correlates weakly with the observed signal and does not dominate the residual under any schedule.}
+\label{fig:driftvalidation}
+\end{figure}
+
+\section{Full New-Baselines Comparison and Fixed-Compute-Budget Analysis}
+\label{app:newbaselines}
+\label{app:equalcompute}
+
+We implement and run four baselines not previously benchmarked against IES: InfoBatch \citep{qin2024infobatch} ($r{=}0.5$ soft-pruning below epoch-mean loss, $1/(1-r)$ gradient rescaling, annealing to the full dataset for the final $12.5\%$ of epochs); BLS-InfoBatch \citep{zhou2026bls} (same schedule, EMA-smoothed score, $\alpha{=}0.7$); AlignPrune \citep{qin2026alignprune} (Dynamic Alignment Score against the population-mean trajectory, since no clean-labeled reference subset exists here); and Selective Backprop \citep{jiang2019accelerating} (percentile-rank accept probability $p^{\beta_{\mathrm{sb}}-1}$, $\beta_{\mathrm{sb}}{=}3$, on the persistent last-observed-loss score, no gradient rescaling and no annealing back to the full dataset, since SB is an explicitly biased sampler by design rather than InfoBatch's unbiased correction). We do not compare against DPPO \citep{zhu2026dppo} (a different, RL setting).
+
+On VGG-16 (seed 0) and CIFAR-100 (seed 0), the same ranking as the primary cell holds among the first three: TG-IES leads at $54.4\%$/$57.8\%$ saved against InfoBatch's $38.9\%$/$35.2\%$, BLS-InfoBatch's $36.4\%$/$30.9\%$, and AlignPrune's $22.7\%$/$22.5\%$, all within 1--2 accuracy points. AlignPrune saves the least of these methods consistently, expected rather than a weakness of our implementation: its Dynamic Alignment Score identifies samples \emph{misaligned} with the population trend (a label-noise signal), not samples converged \emph{with} it (a mastery signal); on clean CIFAR labels most of what it would need to prune to match TG-IES are exactly the well-aligned instances its score is built to keep.
+
+\textbf{Selective Backprop: the other extreme of the trade-off.} On the primary cell (3 seeds), SB saves $66.72\pm0.01\%$ of backpropagation instances -- more than every other method in this paper, TG-IES included ($53.63\%$) -- but at $93.31\pm0.11\%$ accuracy, a $1.72$-point cost relative to baseline ($95.03\%$), the largest accuracy cost of any method compared anywhere in this paper (next largest: TG-IES's own $0.87$ points on CIFAR-100, \cref{sec:generalization}). SB's savings are also the most seed-stable of any method measured ($\pm0.01$ points, tighter even than InfoBatch's $\pm0.01$). This is not a failure of our implementation: SB's probabilistic accept/reject rule has no calibrated stopping condition tied to a stability argument (\cref{sec:related}), so it has no mechanism analogous to \cref{cor:kstar}'s conditional exclusion bound to stop pruning before accuracy degrades. Read together with \cref{tab:primary}, SB and TG-IES mark the two ends of a Pareto-like frontier on this cell: the most raw compute saved for the most accuracy given up, versus a small, bounded accuracy cost for a smaller but still leading (among methods with any comparable accuracy) compute saving.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_equal_compute.png}
+\caption{Best-so-far test accuracy vs.\ cumulative compute budget (\% of $N\times$total-epochs), all three cells with new-baseline data. A method's curve stops at its own final compute point.}
+\label{fig:equalcompute}
+\end{figure}
+
+\textbf{Accuracy under a fixed compute budget.} At a common compute budget rather than each method's own stopping point, the result is a genuine trade-off, consistent across all three cells: at low budgets ($20$--$30\%$), InfoBatch and BLS-InfoBatch lead TG-IES by $2.5$--$4.3$ points, since they skip both forward and backward on a pruned instance and so get more model updates per unit of measured compute early in training. This narrows to $0.1$--$0.8$ points by $40\%$ and reverses on CIFAR-100 ($+0.12$ points for TG-IES). The practical implication is budget-dependent: a practitioner constrained to $20$--$30\%$ of full compute would currently do better with InfoBatch-family methods; \cref{tab:primary}'s own-budget comparison describes a different, later operating regime. We report both framings rather than hide the trade-off.
+
+\section{Empirical Validation of the Noise-Independence Assumption}
+\label{sec:noise-validation}
+
+\Cref{ass:noise} assumes $\xi_{i,t}$ independent across $t$; we test this directly. Detrending each instance's epoch-101--200 loss trajectory (ResNet-18/CIFAR-10, seed 0) with an OLS linear fit and pooling residuals across instances estimates lag-$k$ autocorrelation directly (\cref{fig:noiseautocorr}).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\linewidth]{figures/fig4_noise_autocorr.png}
+\caption{Pooled lag-$k$ autocorrelation of detrended per-instance loss residuals, epochs 101--200, ResNet-18/CIFAR-10 seed 0 ($n{\approx}1.9$M pairs/lag). Shaded band: 95\% null interval for zero correlation.}
+\label{fig:noiseautocorr}
+\end{figure}
+
+An earlier pass detrended with a width-5 moving average and measured $\hat\rho_1{=}{-}0.298,\hat\rho_2{=}{-}0.348$, which looked like strong evidence against \cref{ass:noise}; we verified by direct calculation that pure white noise under that same filter produces $\rho_1{=}{-}0.30,\rho_2{=}{-}0.35$ \emph{exactly} -- the entire signal was the detrending filter's own artifact. Redone with OLS linear detrending (whose own simulated white-noise artifact is $\hat\rho_1{\approx}{-}0.021,\hat\rho_2{\approx}{-}0.019$), the real data gives $\hat\rho_1{=}{-}0.025,\hat\rho_2{=}{-}0.023$ -- statistically distinguishable from zero at $n{\approx}1.9$M pairs but small and close to the detrending method's own bias, evidence \emph{for}, not against, \cref{ass:noise} once the method's bias is accounted for. Taking the measured values at face value regardless, the correction to \cref{thm:bv} at $N{=}2$ is a factor of $6.15$ against the assumed $6.0$ -- a $2.5\%$ correction, requiring $\delta$ to grow under $1.3\%$ to keep the same nominal false-exclusion rate. This does not materially change any result in \cref{sec:results}.
+
+\section{Gradient-Norm-Floor Percentile Sensitivity}
+\label{sec:sensitivity}
+
+\Cref{sec:selfcalib-scope} fixes the percentile behind $K^*$ at the 20th throughout; we sweep $\{5,10,20,35,50,80\}$ on ResNet-18 and VGG-16 (primary recipe, seed 0), holding everything else fixed.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\linewidth]{figures/fig5_sensitivity.png}
+\caption{Backprop saved (left) and best test accuracy (right) vs.\ gradient-norm-floor percentile, ResNet-18 and VGG-16, CIFAR-10, seed 0. Dotted line: this paper's fixed default (20th percentile).}
+\label{fig:sensitivity}
+\end{figure}
+
+Both curves are essentially flat across a 16$\times$ range: ResNet-18 savings vary by $1.18$ points, accuracy by $0.17$; VGG-16 by $0.30$ and $0.40$ points respectively. Neither curve is monotonic, itself informative: there is no directional trend to correct for by tuning further. The gap between architectures at any fixed percentile is larger than the gap the percentile choice induces within either, consistent with the percentile being a fixed, low-sensitivity policy input rather than one needing per-architecture retuning within this range. This does not resolve \cref{rem:kmismatch} (evidence the current value is not fragile, not evidence a derived value would not be preferable in principle).
+
+\section{Measured Wall-Clock Time, Peak Memory, and Estimated Energy}
+\label{app:efficiency}
+
+\begin{table}[h]
+\caption{Measured efficiency, primary setting, single RTX 5090. Wall-clock: mean over 3 seeds from the real 200-epoch runs. Peak Mem/Util/Energy: short instrumented runs, seed 0; Energy is an estimate. Lower is better throughout.}
+\label{tab:efficiency}
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+Method & Wall-clk (min) & Peak Mem (MiB) & Util (\%) & Energy (Wh) \\
+\midrule
+Baseline & 15.66 & 1162 & 67.7 & 98.2 \\
+IES (shipped) & 12.86 & 1216 & 62.8 & 78.1 \\
+IES (literal) & 12.26 & 1184 & 59.0 & 70.1 \\
+\win{TG-IES} & \win{$\mathbf{11.66}$} & \lose{1454} & \win{$\mathbf{48.9}$} & \win{$\mathbf{59.9}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\linewidth]{figures/fig7_efficiency.png}
+\caption{Wall-clock time, peak GPU memory, and estimated energy, each as \% of no-removal baseline. Wall-clock and energy fall furthest for TG-IES; peak memory is the one metric that rises above baseline, only for TG-IES.}
+\label{fig:efficiency}
+\end{figure}
+
+Wall-clock is the per-epoch time already logged by every 200-epoch run; peak memory, mean utilization, and mean power were collected separately via out-of-process \texttt{nvidia-smi} polling on fresh 8-epoch instrumented repetitions; estimated energy multiplies each method's measured mean power by its real 200-epoch wall-clock. TG-IES is fastest and most estimated-energy-efficient ($25.5\%$ faster, $\sim\!39\%$ lower energy than baseline) but has the \emph{highest} peak memory ($1454$ MiB, $\sim\!25\%$ above baseline), attributable specifically to its one-time recalibration pass: estimating the gradient-norm-floor percentile forwards a subsample in batches of $256$ (four times the training batch size), and PyTorch's caching allocator does not release the resulting larger reservation for the rest of the run. This is a genuine memory/compute trade-off specific to TG-IES's calibration mechanism.
+
+\textbf{Does this generalize across batch size?} \Cref{tab:efficiency} reports one batch size ($64$) on one GPU. We reuse a short instrumented sweep over $\{32,64,128,256\}$ (baseline, IES shipped, TG-IES; 8 epochs each, same \texttt{nvidia-smi}-polling methodology) to check.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_batchsize_sensitivity.png}
+\caption{Peak GPU memory delta, mean GPU utilization, and mean per-epoch time (short 8-epoch instrumented runs, log-scale batch size) vs.\ batch size, ResNet-18/CIFAR-10.}
+\label{fig:batchsize}
+\end{figure}
+
+\textbf{This does not generalize the way \cref{tab:efficiency}'s headline number suggests.} Within these short 8-epoch windows, before enough instances have been excluded to amortize TG-IES's per-epoch bookkeeping, TG-IES is \emph{slower} than baseline at every batch size tested ($18$--$53\%$ higher mean epoch time), the opposite direction of the full-200-epoch table's $25.5\%$ speedup. \Cref{tab:efficiency}'s wall-clock advantage is consequently a \emph{full-run} property that emerges only as exclusions accumulate over training, not a per-epoch constant -- it should not be assumed to hold for short training runs or fine-tuning regimes where few instances ever reach $K^*$ consecutive low-signal epochs. Peak-memory overhead relative to baseline is also batch-size-dependent and non-monotonic ($1.01$--$1.70\times$ across the four sizes, both IES methods jumping to $4122$MiB together at batch size $256$, plausibly a CuDNN algorithm-selection effect at that size rather than anything specific to TG-IES's own recalibration pass, though we have not isolated the cause). GPU utilization is lower for TG-IES than baseline at every batch size and the gap widens with batch size ($8$-point gap at $32$, $23$-point gap at $256$) -- consistent with the per-instance active/passive bookkeeping being harder to amortize as more images share one kernel launch. We report this as a genuine caveat on \cref{tab:efficiency}'s generalization, not something \cref{tab:efficiency} itself is wrong about (that table's numbers are for the real, full $200$-epoch runs this paper's accuracy/savings numbers also come from).
+
+\section{Additional Figures for Level-2 and the Gradient-Norm Bridge}
+\label{app:extra-figs}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.48\linewidth]{figures/fig_order_of_difference.png}
+\hfill
+\includegraphics[width=0.48\linewidth]{figures/fig_phase_quartile_r.png}
+\caption{Left: empirical MSE$(N)$ vs.\ predicted noise floor, naive population-average test (all instances, epochs 101--200). This pooled test does not isolate \cref{prop:mse}'s SNR band and finds $N{=}1$ lowest; the band-restricted test (main text) finds $N{=}2$ lowest, as predicted. Right: empirical $\hat r_i$ pooled per training-epoch quartile; rate rises and spread narrows in the second half of training.}
+\label{fig:orderdiff}
+\label{fig:phasequartile}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_bridge_norm_check.png}
+\caption{Per-instance gradient norm $\|g_i^{(t)}\|$ vs.\ $\sqrt{|\Delta^2 L_i^{(t)}|}$, all three LR schedules, primary architecture/dataset (300-instance subset). \Cref{thm:bridge} predicts a positive, roughly linear relationship; correlations shown per panel.}
+\label{fig:bridgenormcheck}
+\end{figure}
+
+\section{ViT-Tiny: Full Results and Caveats}
+\label{app:vit}
+
+Every architecture in the main matrix is convolutional; here we test whether TG-IES's calibration -- derived under no architectural assumption beyond a per-instance loss and gradient -- transfers to a Vision Transformer \citep{dosovitskiy2021image}, trained from scratch at CIFAR scale with the same four fixed calibration constants as every convolutional cell. We use a CIFAR-native ViT-Tiny: patch-4 on the $32{\times}32$ input (64 tokens plus CLS), 6 pre-norm blocks, 192-dim, 3 heads, $2.69$M parameters -- not the ImageNet-oriented patch-16 configuration, whose tokenization would yield only 4 tokens at this resolution. AdamW (lr $10^{-3}$, weight decay $0.05$), 10-epoch linear warmup then cosine decay over 200 epochs; we validated the baseline alone before running the full comparison.
+
+\begin{table}[h]
+\caption{ViT-Tiny (CIFAR-native, patch-4), CIFAR-10 and CIFAR-100, AdamW warmup-cosine, mean $\pm$ std, 3 seeds.}
+\label{tab:vit10}
+\label{tab:vit100}
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{CIFAR-10} & \multicolumn{2}{c}{CIFAR-100} \\
+Method & Acc.\ (\%) & Saved (\%) & Acc.\ (\%) & Saved (\%) \\
+\midrule
+Baseline & $84.07\pm0.35$ & $0.03\pm0.00$ & $59.25\pm0.24$ & $0.03\pm0.00$ \\
+IES (shipped) & $83.92\pm0.18$ & $13.13\pm0.21$ & $59.19\pm0.22$ & $8.38\pm0.22$ \\
+IES (literal) & $83.86\pm0.48$ & $16.68\pm0.32$ & $58.77\pm0.24$ & $12.51\pm0.21$ \\
+\win{TG-IES (ours)} & \lose{$83.71\pm0.47$} & \win{$\mathbf{25.52\pm0.26}$} & \lose{$58.56\pm0.47$} & \win{$\mathbf{26.28\pm0.14}$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Four findings.} The savings advantage transfers and grows with difficulty: $1.53\times$ IES (literal) on CIFAR-10, $2.10\times$ on CIFAR-100, tight seed variance on savings specifically. Self-calibration, not the fixed-$\delta$ methods' hand-tuned constant, is the mechanism: $\delta$ rescales $186\times$ (CIFAR-10) and $333\times$ (CIFAR-100) with no constant retuned by hand. Absolute savings are much lower than CNNs ($\sim\!26\%$ vs.\ $\sim\!54.5\%$ DenseNet-121). There is a small accuracy cost on transformers unlike CNNs ($0.36$--$0.69$ points, widest seed spread of any method), suggesting instance removal destabilizes a data-starved, from-scratch ViT more than a CNN.
+
+\textbf{Caveats.} $K^*$ was pinned at the configured ceiling ($15$) in every ViT run: \cref{cor:kstar}'s closed form asked for more patience than allowed, so these numbers reflect the theory clamped by configuration; lifting the cap is untested. Savings arrive late (exclusions ramp steeply only in the second half of training). $\delta$ recalibrates once, at epoch 30 as in every CNN cell; whether this timing is also right for a transformer's different loss dynamics is untested. Absolute accuracy is well below the CNN cells, expected for a from-scratch transformer on 50k images with crop-and-flip augmentation only.
+
+\section{$K^*$-Sweep: Full Trajectory Figure and Discussion}
+\label{app:kstartraj}
+
+\begin{table}[h]
+\caption{$K^*$-sweep, primary cell, mean $\pm$ std, 3 seeds, $\delta$ self-calibrated. Matched baseline: $95.08\pm0.14\%$ acc.}
+\label{tab:kstarsweep-full}
+\centering
+\small
+\begin{tabular}{ccc}
+\toprule
+$K^*$ (fixed) & Acc.\ (\%) & Saved (\%) \\
+\midrule
+1 & $94.55\pm0.16$ & $\mathbf{66.98\pm0.62}$ \\
+2 & $94.56\pm0.08$ & $65.75\pm0.27$ \\
+4 & $94.62\pm0.10$ & $63.24\pm0.44$ \\
+8 & $94.80\pm0.09$ & $58.85\pm0.57$ \\
+15 & $94.80\pm0.09$ & $53.38\pm0.58$ \\
+30 & $\mathbf{94.87\pm0.09}$ & $44.13\pm0.40$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_kstar_trajectory.png}
+\caption{Parameter-space distance between TG-IES's actual trajectory and the shared-seed baseline reference vs.\ epoch, one curve per fixed $K^*$, 3-seed mean. Left: absolute distance. Right: normalized by the baseline's own parameter norm at that epoch.}
+\label{fig:kstartraj}
+\end{figure}
+
+Absolute parameter distance from baseline \emph{decreases} over training for every $K^*$ tested, from $\approx\!54$ at epoch $20$ to $29$--$37$ by epoch $200$, plateauing over the last third of training. At every snapshot epoch the ordering across $K^*$ matches \cref{thm:safe}'s predicted direction exactly, with no crossings. The \emph{normalized} distance (right panel) instead rises and plateaus higher, because the reference parameter norm itself shrinks faster (weight decay) than the absolute gap does; we report both panels since which normalization is the ``right'' one to read \cref{rem:shared-traj}'s open question through is not settled by this experiment. This is empirical evidence consistent with, but not a substitute for, a genuine multi-step bound (\cref{app:multistep}); we update \cref{sec:limitations}'s framing from ``untested'' to ``empirically consistent with, formally still open.''
+
+\section{Naive Grid Search Over $\delta$: Is the Calibration Better Than Search?}
+\label{app:deltagrid}
+
+\Cref{sec:ablation}'s ``$\delta$ only'' row shows calibrating $\delta$ alone (\cref{cor:threshold}, $K^*{=}1$) reaches $94.68\%$ acc.\ / $66.62\%$ saved. This does not by itself show the \emph{calibration} is doing useful work rather than TG-IES simply landing, by whatever means, on a more aggressive threshold than IES's hand-tuned $0.001$ -- a question a theory-guided calibration paper should not leave unanswered. We test it directly: fixing $K^*{=}1$ and sweeping $\delta$ over a log-spaced grid (primary cell, seed 0, matching the ablation's own single-seed protocol), with no calibration involved at all.
+
+\begin{table}[h]
+\caption{Naive $\delta$ grid search, $K^*{=}1$ fixed, primary cell, seed 0. The calibrated row (from \cref{tab:ablation}) is included for comparison, not part of the grid.}
+\label{tab:deltagrid}
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+$\delta$ & Acc.\ (\%) & Saved (\%) \\
+\midrule
+$0.001$ (IES's own constant) & $94.92$ & $48.59$ \\
+$0.003$ & $94.76$ & $61.38$ \\
+$0.005$ & $94.39$ & $64.75$ \\
+$0.0077$ (\textbf{calibrated}, \cref{cor:threshold}) & $\mathbf{94.68}$ & $\mathbf{66.62}$ \\
+$0.015$ & $94.52$ & $70.47$ \\
+$0.03$ & $94.27$ & $72.98$ \\
+$0.05$ & $93.92$ & $74.48$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Finding: the calibrated value sits on the same frontier a naive grid traces, not above it.} Accuracy falls and savings rise smoothly and roughly monotonically across the whole grid (\cref{tab:deltagrid}), the ordinary accuracy--compute trade-off, not a special curve the calibration alone accesses. The calibrated point does not Pareto-dominate every grid point (at similar savings, $\delta{=}0.015$ reaches $70.47\%$ saved at $94.52\%$ acc., a different but comparable trade-off to the calibrated point's $66.62\%$/$94.68\%$) nor is it dominated by every grid point (it beats $\delta{=}0.005$ on both axes). Reading this honestly: this experiment does \emph{not} demonstrate that \cref{cor:threshold}'s derivation finds a better $\delta$ than an untheorized search would, at comparable final quality. What it does demonstrate is a cheaper route to a comparable point: the calibration reaches this frontier in a single run (via one cheap recalibration pass at epoch 30), where the naive grid above needed five full $200$-epoch runs to trace the same region. We had not run this comparison before a reviewer asked for it, and we do not consider the question closed by one seed, one architecture, and a five-point grid -- a denser sweep, repeated across seeds, and on a setting where TG-IES's calibration is known to underperform (e.g.\ \cref{app:adam}) would be needed to check whether this conclusion (comparable quality, cheaper to reach) holds more broadly, or whether the calibration's real advantage is narrower than that.
+
+\section{Reactivation Probe: Does the Excluded Set Actually Satisfy the Gradient-Floor Hypothesis?}
+\label{app:reactprobe}
+
+\Cref{thm:safe}'s bound and \cref{alg:tgies}'s derivation of $K^*$ both rest on a specific per-instance hypothesis: every currently-excluded instance $i$ satisfies $\|g_i^{(t)}\|<\varepsilon_0$, where $\varepsilon_0$ is the cheap, last-layer proxy percentile estimated once at epoch 30 (\cref{app:practical}). Every check of this hypothesis so far in this paper (\cref{sec:bridge}'s empirical check, \cref{app:extra-figs}) has used the same cheap proxy or a correlational check, not the \emph{true} full-model gradient norm on the actual excluded set during an otherwise-unmodified run. We close that gap directly: \texttt{-{}-reactivation\_probe\_every 20} adds, every 20 epochs, an individual batch-size-1 forward+backward pass on a random subsample of $300$ currently-passive instances (self-calibrated $\delta$, primary cell, 3 seeds, tagged \texttt{\_reactprobe}), computing each one's true $\|g_i^{(t)}\|$ and checking it against the run's own calibrated $\varepsilon_0$. This instrumentation is purely diagnostic: it does not feed back into the algorithm's actual removal or reactivation decisions, so the probed runs' accuracy and savings ($94.67\pm0.11\%$ acc., $53.66\pm0.10\%$ saved) match the unprobed primary-cell TG-IES numbers (\cref{tab:primary}) closely, confirming the probe itself does not perturb training.
+
+\begin{table}[h]
+\caption{Reactivation probe, primary cell, 3-seed mean of \texttt{frac\_exceed\_eps0} (fraction of a 300-instance random subsample of the passive set whose true gradient norm exceeds the run's calibrated $\varepsilon_0$) at each probed epoch.}
+\label{tab:reactprobe}
+\centering
+\small
+\begin{tabular}{cccccccccc}
+\toprule
+Epoch & 40 & 60 & 80 & 100 & 120 & 140 & 160 & 180 & 200 \\
+\midrule
+Frac.\ $>\varepsilon_0$ & $0.52$ & $0.48$ & $0.39$ & $0.46$ & $0.48$ & $0.46$ & $0.47$ & $0.50$ & $0.50$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Finding: roughly half the excluded set exceeds the calibrated floor at every check, with no decreasing trend.} Pooling all 9 probed epochs across 3 seeds ($27$ (epoch, seed) points, $300$ probed instances each), the mean fraction of the passive set exceeding $\varepsilon_0$ is $47.4\%$, ranging $34$--$59\%$ epoch-to-epoch with no consistent decrease over training (\cref{tab:reactprobe}) -- if anything, the fraction is lowest at epoch 80 and drifts back up to $\approx\!50\%$ by epoch 200, the opposite of what a hypothesis that becomes \emph{more} valid as training progresses would predict. This directly complicates \cref{thm:safe}'s per-instance hypothesis in practice: at any given check, roughly half of the instances the algorithm currently treats as safely excluded have a true gradient norm the theory's own floor says they should not. The picture is not uniformly bad, however: each seed's \emph{median} probed gradient norm ($0.025$--$0.029$ across seeds and epochs) sits close to that seed's own $\varepsilon_0$ ($0.027$--$0.030$), while the \emph{mean} probed gradient norm is $2$--$10\times$ higher ($0.07$--$0.29$) -- a heavy right tail, not a uniformly shifted distribution. So the calibrated $\varepsilon_0$ is a reasonable estimate of a \emph{typical} (median) excluded instance's gradient floor, but a systematically loose one for the population as a whole, since roughly half the excluded set sits above it at any moment.
+
+\textbf{Reading this alongside \cref{sec:kstartraj}.} \Cref{sec:kstartraj}'s aggregate trajectory-divergence measurement, on the same primary cell, finds absolute parameter drift from the full-data baseline \emph{plateaus} rather than growing without bound, despite this per-instance violation rate never approaching zero. We do not have an explanation for this reconciliation that we are confident in and do not offer one we have not verified: a natural candidate is that \cref{thm:safe}'s bound is itself an \emph{average}, $1/N$-scaled quantity, so a near-half violation rate at a bounded excess magnitude (the heavy tail above, not an unbounded one) may still keep the aggregate update small relative to $N=50{,}000$. \Cref{app:aggregate} now derives and checks this quantitatively rather than leaving it as an untested candidate. What this probe does establish is narrower and more direct: the gradient-floor hypothesis behind \cref{thm:safe,cor:kstar} is a population-level approximation that a large fraction of individual excluded instances violate at any snapshot, not a hypothesis that holds instance-by-instance as the theorem's statement (``every currently-excluded instance satisfies $\|g_i^{(t)}\|<\varepsilon$'') would suggest if read literally. We add this to \cref{sec:limitations} as a further qualification of the bound's practical scope, alongside the already-open multi-step question (\cref{rem:shared-traj}), rather than treat \cref{sec:kstartraj}'s aggregate result as having closed it.
+
+\section{Extended Future-Work List}
+\label{app:limitations-extended}
+
+(1) \emph{Scale.} All experiments are CIFAR-scale; TinyImageNet or ImageNet-100 would test whether calibration (in particular the gradient-norm-floor proxy behind $K^*$) transfers to higher resolution and more classes. (2) \emph{Architecture family, partly closed.} \Cref{app:vit} adds one CIFAR-native ViT-Tiny; a larger transformer (ViT-Small, DeiT-Tiny) or one at a resolution where patch-16 tokenization is meaningful remains untried, as does raising \texttt{-{}-max\_kstar}. (3) \emph{Optimizer/schedule sensitivity.} \Cref{sec:results,app:adam} show TG-IES trailing simpler IES variants on settings without the exponential schedule; \cref{sec:lrmechanism}'s candidate mechanism is only partly confirmed by direct instrumentation, and a controlled ablation calibrating $\delta,K^*$ under a matched noise/gradient-norm profile across schedules remains unrun. The bridge's qualitative direction ($\|g_i^{(t)}\|$ vs.\ $\sqrt{|\Delta^2L_i^{(t)}|}$) is now confirmed across all three schedules; only the \emph{exact} bound $\varepsilon_i(\delta)$, needing per-instance $r_i,\Lambda_i$, remains open. (4) RHO-LOSS \citep{mindermann2022prioritized} and RL-style dynamic pruning \citep{zhu2026dppo} are not compared. (5) \emph{The multi-step trajectory-divergence bound}, now empirically probed (\cref{app:kstartraj}), formally attempted (\cref{app:multistep}, exponentially loose), and partly refined at the aggregate level (\cref{app:aggregate}: a provably tighter, directly-measured leading constant, still the same exponential structural form) but not proved tightly -- we view this as the single most important remaining theoretical gap, ahead of (1)--(4).
+
+\section{Additional Experimental Details}
+\label{app:experiment}
+
+\textbf{Full per-run results.} \Cref{tab:fullresults} lists every IES-family run underlying the main tables and \cref{app:adam,app:vit} (96 runs total). Two rows (ResNet-18/F and VGG-16/E, TG-IES, seed 0) supersede values from an earlier version traced to the reproducibility issue of \cref{sec:results}; stale originals are retained in the released code's \texttt{results/} directory with a \texttt{\_STALE\_preverify} suffix for audit purposes.
+
+\begingroup
+\small
+\begin{longtable}{llccc}
+\caption{All 96 IES-family runs. E = SGD exponential LR, F = SGD fixed LR, C100 = CIFAR-100, ViT/C10 and ViT/C100 = ViT-Tiny on CIFAR-10/CIFAR-100. Color on TG-IES rows compares against the other methods for that same seed.}
+\label{tab:fullresults} \\
+\toprule
+Setting & Method & Seed & Acc.\ (\%) & Saved (\%) \\
+\midrule
+\endfirsthead
+\multicolumn{5}{l}{\tablename~\thetable{} -- continued from previous page} \\
+\toprule
+Setting & Method & Seed & Acc.\ (\%) & Saved (\%) \\
+\midrule
+\endhead
+\midrule
+\multicolumn{5}{r}{continued on next page} \\
+\endfoot
+\bottomrule
+\endlastfoot
+ResNet-18/E & Baseline & 0 & 94.96 & 0.03 \\
+ResNet-18/E & Baseline & 1 & 95.18 & 0.03 \\
+ResNet-18/E & Baseline & 2 & 94.95 & 0.03 \\
+ResNet-18/E & IES (shipped) & 0 & 94.61 & 45.36 \\
+ResNet-18/E & IES (shipped) & 1 & 94.74 & 46.09 \\
+ResNet-18/E & IES (shipped) & 2 & 94.79 & 45.53 \\
+ResNet-18/E & IES (literal) & 0 & 94.92 & 48.59 \\
+ResNet-18/E & IES (literal) & 1 & 94.66 & 49.00 \\
+ResNet-18/E & IES (literal) & 2 & 94.97 & 49.47 \\
+ResNet-18/E & TG-IES & 0 & \lose{94.61} & \win{53.48} \\
+ResNet-18/E & TG-IES & 1 & \lose{95.16} & \win{53.44} \\
+ResNet-18/E & TG-IES & 2 & \lose{94.77} & \win{53.98} \\
+ResNet-18/F & Baseline & 0 & 92.28 & 0.03 \\
+ResNet-18/F & Baseline & 1 & 92.21 & 0.03 \\
+ResNet-18/F & Baseline & 2 & 92.13 & 0.03 \\
+ResNet-18/F & IES (shipped) & 0 & 91.78 & 44.71 \\
+ResNet-18/F & IES (shipped) & 1 & 91.69 & 44.55 \\
+ResNet-18/F & IES (shipped) & 2 & 91.61 & 44.23 \\
+ResNet-18/F & IES (literal) & 0 & 91.77 & 49.60 \\
+ResNet-18/F & IES (literal) & 1 & 91.66 & 49.38 \\
+ResNet-18/F & IES (literal) & 2 & 91.87 & 49.27 \\
+ResNet-18/F & TG-IES & 0 & \lose{91.71} & \lose{29.57} \\
+ResNet-18/F & TG-IES & 1 & \lose{91.96} & \lose{29.27} \\
+ResNet-18/F & TG-IES & 2 & \lose{92.07} & \lose{28.98} \\
+VGG-16/E & Baseline & 0 & 93.25 & 0.03 \\
+VGG-16/E & Baseline & 1 & 93.21 & 0.03 \\
+VGG-16/E & Baseline & 2 & 93.44 & 0.03 \\
+VGG-16/E & IES (shipped) & 0 & 93.33 & 38.67 \\
+VGG-16/E & IES (shipped) & 1 & 93.27 & 37.46 \\
+VGG-16/E & IES (shipped) & 2 & 93.34 & 36.99 \\
+VGG-16/E & IES (literal) & 0 & 93.04 & 41.85 \\
+VGG-16/E & IES (literal) & 1 & 93.35 & 41.45 \\
+VGG-16/E & IES (literal) & 2 & 93.07 & 39.74 \\
+VGG-16/E & TG-IES & 0 & \lose{92.96} & \win{54.36} \\
+VGG-16/E & TG-IES & 1 & \lose{93.15} & \win{54.56} \\
+VGG-16/E & TG-IES & 2 & \lose{93.23} & \win{54.37} \\
+DenseNet-121/E & Baseline & 0 & 95.37 & 0.03 \\
+DenseNet-121/E & Baseline & 1 & 95.50 & 0.03 \\
+DenseNet-121/E & Baseline & 2 & 95.22 & 0.03 \\
+DenseNet-121/E & IES (shipped) & 0 & 95.37 & 48.19 \\
+DenseNet-121/E & IES (shipped) & 1 & 95.47 & 49.79 \\
+DenseNet-121/E & IES (shipped) & 2 & 95.25 & 47.83 \\
+DenseNet-121/E & IES (literal) & 0 & 95.26 & 51.96 \\
+DenseNet-121/E & IES (literal) & 1 & 95.24 & 52.27 \\
+DenseNet-121/E & IES (literal) & 2 & 95.23 & 50.59 \\
+DenseNet-121/E & TG-IES & 0 & \lose{95.24} & \win{54.73} \\
+DenseNet-121/E & TG-IES & 1 & \lose{95.22} & \win{55.06} \\
+DenseNet-121/E & TG-IES & 2 & \win{95.38} & \win{53.79} \\
+ResNet-18/Adam & Baseline & 0 & 92.98 & 0.03 \\
+ResNet-18/Adam & Baseline & 1 & 92.88 & 0.03 \\
+ResNet-18/Adam & Baseline & 2 & 92.86 & 0.03 \\
+ResNet-18/Adam & IES (shipped) & 0 & 92.67 & 56.04 \\
+ResNet-18/Adam & IES (shipped) & 1 & 92.50 & 55.80 \\
+ResNet-18/Adam & IES (shipped) & 2 & 92.66 & 56.23 \\
+ResNet-18/Adam & IES (literal) & 0 & 92.49 & 59.80 \\
+ResNet-18/Adam & IES (literal) & 1 & 92.47 & 60.39 \\
+ResNet-18/Adam & IES (literal) & 2 & 92.30 & 60.10 \\
+ResNet-18/Adam & TG-IES & 0 & \lose{92.33} & \lose{30.86} \\
+ResNet-18/Adam & TG-IES & 1 & \lose{92.49} & \lose{29.64} \\
+ResNet-18/Adam & TG-IES & 2 & \lose{92.51} & \lose{30.04} \\
+ResNet-18/C100 & Baseline & 0 & 76.46 & 0.03 \\
+ResNet-18/C100 & Baseline & 1 & 77.27 & 0.03 \\
+ResNet-18/C100 & Baseline & 2 & 76.91 & 0.03 \\
+ResNet-18/C100 & IES (shipped) & 0 & 76.64 & 11.74 \\
+ResNet-18/C100 & IES (shipped) & 1 & 76.69 & 11.99 \\
+ResNet-18/C100 & IES (shipped) & 2 & 77.29 & 12.19 \\
+ResNet-18/C100 & IES (literal) & 0 & 76.33 & 18.18 \\
+ResNet-18/C100 & IES (literal) & 1 & 76.92 & 18.32 \\
+ResNet-18/C100 & IES (literal) & 2 & 77.09 & 18.98 \\
+ResNet-18/C100 & TG-IES & 0 & \lose{75.97} & \win{57.81} \\
+ResNet-18/C100 & TG-IES & 1 & \lose{75.96} & \win{57.73} \\
+ResNet-18/C100 & TG-IES & 2 & \lose{76.11} & \win{57.75} \\
+ViT-Tiny/C10 & Baseline & 0 & 84.25 & 0.03 \\
+ViT-Tiny/C10 & Baseline & 1 & 84.30 & 0.03 \\
+ViT-Tiny/C10 & Baseline & 2 & 83.67 & 0.03 \\
+ViT-Tiny/C10 & IES (shipped) & 0 & 84.13 & 13.37 \\
+ViT-Tiny/C10 & IES (shipped) & 1 & 83.83 & 12.97 \\
+ViT-Tiny/C10 & IES (shipped) & 2 & 83.81 & 13.06 \\
+ViT-Tiny/C10 & IES (literal) & 0 & 84.32 & 17.05 \\
+ViT-Tiny/C10 & IES (literal) & 1 & 83.90 & 16.48 \\
+ViT-Tiny/C10 & IES (literal) & 2 & 83.37 & 16.52 \\
+ViT-Tiny/C10 & TG-IES & 0 & \lose{84.26} & \win{25.80} \\
+ViT-Tiny/C10 & TG-IES & 1 & \lose{83.47} & \win{25.30} \\
+ViT-Tiny/C10 & TG-IES & 2 & \lose{83.41} & \win{25.45} \\
+ViT-Tiny/C100 & Baseline & 0 & 59.19 & 0.03 \\
+ViT-Tiny/C100 & Baseline & 1 & 59.51 & 0.03 \\
+ViT-Tiny/C100 & Baseline & 2 & 59.05 & 0.03 \\
+ViT-Tiny/C100 & IES (shipped) & 0 & 58.96 & 8.20 \\
+ViT-Tiny/C100 & IES (shipped) & 1 & 59.40 & 8.62 \\
+ViT-Tiny/C100 & IES (shipped) & 2 & 59.20 & 8.33 \\
+ViT-Tiny/C100 & IES (literal) & 0 & 58.54 & 12.28 \\
+ViT-Tiny/C100 & IES (literal) & 1 & 59.02 & 12.70 \\
+ViT-Tiny/C100 & IES (literal) & 2 & 58.75 & 12.55 \\
+ViT-Tiny/C100 & TG-IES & 0 & \lose{58.97} & \win{26.23} \\
+ViT-Tiny/C100 & TG-IES & 1 & \lose{58.05} & \win{26.43} \\
+ViT-Tiny/C100 & TG-IES & 2 & \lose{58.66} & \win{26.17} \\
+\end{longtable}
+\endgroup
+
+\textbf{Hardware and reproducibility.} All runs used a single NVIDIA RTX 5090 GPU; \cref{app:efficiency} reports precise wall-clock, memory, utilization, and estimated energy. All four methods are implemented in a single training entry point taking \texttt{-{}-method \{baseline,ies\_shipped,ies\_alg1,tgies\}} so data pipeline, model, and optimizer code are shared exactly across methods; a single script drives the full experimental matrix and supports resuming any interrupted run.
+
+\section{Statistical Analysis of Seed-Level Comparisons}
+\label{app:stats}
+
+Every $\pm$ figure elsewhere in this paper is a sample standard deviation over 3 seeds, not a significance test. This section reports one directly. \texttt{setup\_seed(seed)} is called once per run, before model initialization and data loading, so all four methods sharing a seed share the same initial weights and data-shuffling order -- a genuine paired design, analyzed via paired per-seed differences rather than treating (method, seed) runs as independent. Eight settings have 3 seeds: the primary cell, both secondary CNN cells, Adam, CIFAR-100, DenseNet-121, and both ViT-Tiny cells; the three LR-sweep cells of \cref{sec:lrmechanism} remain single-seed by design.
+
+For each 3-seed setting we compare TG-IES against each other method on best test accuracy, backprop-saved \%, and FLOP-saved \%, reporting: the paired mean difference and its sample standard deviation; a $95\%$ CI via the exact $t$-distribution at $2$ degrees of freedom ($t_{0.975,2}=4.303$); Cohen's $d_z$ (paired effect size); and an exact two-sided sign test (floor $p=2/8=0.25$ at $n=3$, reached whenever all seeds agree in sign, regardless of effect size).
+
+\begingroup
+\small
+\begin{longtable}{llrrrr}
+\caption{Paired per-seed statistics, TG-IES vs.\ each other method, every 3-seed setting ($n=3$). CI: $95\%$, $t(\mathrm{df}{=}2)$. $d_z$: Cohen's paired effect size. $p_{\mathrm{sign}}$: exact two-sided sign test (floor $0.25$ at $n=3$).}
+\label{tab:stats} \\
+\toprule
+Metric & Comparison (TG-IES $-$) & Mean $\Delta$ & $95\%$ CI & $d_z$ & $p_{\mathrm{sign}}$ \\
+\midrule
+\endfirsthead
+\multicolumn{6}{l}{\tablename~\thetable{} -- continued from previous page} \\
+\toprule
+Metric & Comparison (TG-IES $-$) & Mean $\Delta$ & $95\%$ CI & $d_z$ & $p_{\mathrm{sign}}$ \\
+\midrule
+\endhead
+\midrule
+\multicolumn{6}{r}{continued on next page} \\
+\endfoot
+\bottomrule
+\endlastfoot
+\multicolumn{6}{l}{\textbf{Primary: ResNet-18, CIFAR-10, SGD (exponential LR)}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.18$} & $[-0.59,\,0.23]$ & $-1.11$ & $0.250$ \\
+Acc.\ (\%) & IES (shipped) & \win{$0.13$} & $[-0.48,\,0.75]$ & $0.54$ & $1.000$ \\
+Acc.\ (\%) & IES (literal) & \lose{$0.00$} & $[-1.09,\,1.09]$ & $-0.01$ & $1.000$ \\
+Backprop Saved (\%) & Baseline & \win{$53.60$} & $[52.86,\,54.34]$ & $179.2$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \win{$7.97$} & $[6.57,\,9.37]$ & $14.2$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \win{$4.61$} & $[4.00,\,5.22]$ & $18.8$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$35.71$} & $[35.22,\,36.21]$ & $179.2$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \win{$5.31$} & $[4.38,\,6.24]$ & $14.2$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \win{$3.07$} & $[2.67,\,3.48]$ & $18.8$ & $0.250$ \\
+\midrule
+\multicolumn{6}{l}{\textbf{Secondary: ResNet-18, CIFAR-10, SGD (fixed LR)}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.29$} & $[-0.93,\,0.35]$ & $-1.14$ & $0.250$ \\
+Acc.\ (\%) & IES (shipped) & \win{$0.22$} & $[-0.45,\,0.89]$ & $0.82$ & $1.000$ \\
+Acc.\ (\%) & IES (literal) & \win{$0.15$} & $[-0.31,\,0.61]$ & $0.79$ & $1.000$ \\
+Backprop Saved (\%) & Baseline & \win{$29.24$} & $[28.51,\,29.98]$ & $98.8$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \lose{$-15.23$} & $[-15.42,\,-15.03]$ & $-194.1$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \lose{$-20.14$} & $[-20.48,\,-19.80]$ & $-148.1$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$19.49$} & $[18.99,\,19.97]$ & $98.8$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \lose{$-10.14$} & $[-10.27,\,-10.02]$ & $-194.1$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \lose{$-13.42$} & $[-13.65,\,-13.20]$ & $-148.1$ & $0.250$ \\
+\midrule
+\multicolumn{6}{l}{\textbf{Secondary: VGG-16, CIFAR-10, SGD (exponential LR)}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.19$} & $[-0.48,\,0.10]$ & $-1.60$ & $0.250$ \\
+Acc.\ (\%) & IES (shipped) & \lose{$-0.20$} & $[-0.57,\,0.17]$ & $-1.36$ & $0.250$ \\
+Acc.\ (\%) & IES (literal) & \lose{$-0.04$} & $[-0.50,\,0.42]$ & $-0.22$ & $1.000$ \\
+Backprop Saved (\%) & Baseline & \win{$54.40$} & $[54.11,\,54.69]$ & $470.5$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \win{$16.72$} & $[14.46,\,18.98]$ & $18.4$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \win{$13.42$} & $[10.69,\,16.13]$ & $12.3$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$36.23$} & $[36.04,\,36.43]$ & $470.5$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \win{$11.14$} & $[9.63,\,12.64]$ & $18.4$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \win{$8.94$} & $[7.12,\,10.75]$ & $12.3$ & $0.250$ \\
+\midrule
+\multicolumn{6}{l}{\textbf{Adam: ResNet-18, CIFAR-10}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.46$} & $[-0.87,\,-0.06]$ & $-2.84$ & $0.250$ \\
+Acc.\ (\%) & IES (shipped) & \lose{$-0.17$} & $[-0.58,\,0.24]$ & $-1.01$ & $0.250$ \\
+Acc.\ (\%) & IES (literal) & \win{$0.02$} & $[-0.44,\,0.48]$ & $0.13$ & $1.000$ \\
+Backprop Saved (\%) & Baseline & \win{$30.15$} & $[28.61,\,31.69]$ & $48.6$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \lose{$-25.85$} & $[-27.28,\,-24.41]$ & $-44.7$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \lose{$-29.91$} & $[-32.18,\,-27.65]$ & $-32.8$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$20.09$} & $[19.06,\,21.11]$ & $48.6$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \lose{$-17.22$} & $[-18.18,\,-16.26]$ & $-44.7$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \lose{$-19.93$} & $[-21.44,\,-18.42]$ & $-32.8$ & $0.250$ \\
+\midrule
+\multicolumn{6}{l}{\textbf{CIFAR-100: ResNet-18, SGD (exponential LR)}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.87$} & $[-1.90,\,0.16]$ & $-2.09$ & $0.250$ \\
+Acc.\ (\%) & IES (shipped) & \lose{$-0.86$} & $[-1.55,\,-0.17]$ & $-3.09$ & $0.250$ \\
+Acc.\ (\%) & IES (literal) & \lose{$-0.77$} & $[-1.64,\,0.11]$ & $-2.18$ & $0.250$ \\
+Backprop Saved (\%) & Baseline & \win{$57.73$} & $[57.64,\,57.83]$ & $1522.5$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \win{$45.79$} & $[45.15,\,46.43]$ & $178.2$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \win{$39.27$} & $[38.16,\,40.37]$ & $88.3$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$38.47$} & $[38.40,\,38.53]$ & $1522.5$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \win{$30.51$} & $[30.08,\,30.94]$ & $178.2$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \win{$26.17$} & $[25.43,\,26.90]$ & $88.3$ & $0.250$ \\
+\midrule
+\multicolumn{6}{l}{\textbf{DenseNet-121: CIFAR-10, SGD (exponential LR)}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.08$} & $[-0.64,\,0.47]$ & $-0.37$ & $1.000$ \\
+Acc.\ (\%) & IES (shipped) & \lose{$-0.08$} & $[-0.57,\,0.40]$ & $-0.43$ & $1.000$ \\
+Acc.\ (\%) & IES (literal) & \win{$0.04$} & $[-0.21,\,0.28]$ & $0.37$ & $1.000$ \\
+Backprop Saved (\%) & Baseline & \win{$54.49$} & $[52.85,\,56.13]$ & $82.5$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \win{$5.92$} & $[4.36,\,7.49]$ & $9.4$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \win{$2.92$} & $[2.32,\,3.53]$ & $12.0$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$36.32$} & $[35.22,\,37.41]$ & $82.5$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \win{$3.95$} & $[2.90,\,4.99]$ & $9.4$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \win{$1.95$} & $[1.54,\,2.35]$ & $12.0$ & $0.250$ \\
+\midrule
+\multicolumn{6}{l}{\textbf{ViT-Tiny: CIFAR-10, AdamW (warmup-cosine)}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.36$} & $[-1.43,\,0.71]$ & $-0.84$ & $1.000$ \\
+Acc.\ (\%) & IES (shipped) & \lose{$-0.21$} & $[-0.94,\,0.52]$ & $-0.71$ & $1.000$ \\
+Acc.\ (\%) & IES (literal) & \lose{$-0.15$} & $[-0.77,\,0.47]$ & $-0.61$ & $1.000$ \\
+Backprop Saved (\%) & Baseline & \win{$25.49$} & $[24.84,\,26.13]$ & $98.5$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \win{$12.38$} & $[12.25,\,12.52]$ & $228.0$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \win{$8.83$} & $[8.62,\,9.05]$ & $101.1$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$17.06$} & $[16.63,\,17.49]$ & $98.5$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \win{$8.29$} & $[8.20,\,8.38]$ & $228.0$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \win{$5.91$} & $[5.77,\,6.06]$ & $101.1$ & $0.250$ \\
+\midrule
+\multicolumn{6}{l}{\textbf{ViT-Tiny: CIFAR-100, AdamW (warmup-cosine)}} \\
+\midrule
+Acc.\ (\%) & Baseline & \lose{$-0.69$} & $[-2.36,\,0.98]$ & $-1.03$ & $0.250$ \\
+Acc.\ (\%) & IES (shipped) & \lose{$-0.63$} & $[-2.33,\,1.07]$ & $-0.92$ & $1.000$ \\
+Acc.\ (\%) & IES (literal) & \lose{$-0.21$} & $[-1.97,\,1.55]$ & $-0.30$ & $1.000$ \\
+Backprop Saved (\%) & Baseline & \win{$26.25$} & $[25.90,\,26.59]$ & $191.0$ & $0.250$ \\
+Backprop Saved (\%) & IES (shipped) & \win{$17.89$} & $[17.60,\,18.18]$ & $154.5$ & $0.250$ \\
+Backprop Saved (\%) & IES (literal) & \win{$13.77$} & $[13.36,\,14.17]$ & $85.0$ & $0.250$ \\
+FLOP Saved (\%) & Baseline & \win{$17.57$} & $[17.34,\,17.79]$ & $191.0$ & $0.250$ \\
+FLOP Saved (\%) & IES (shipped) & \win{$11.98$} & $[11.78,\,12.17]$ & $154.5$ & $0.250$ \\
+FLOP Saved (\%) & IES (literal) & \win{$9.21$} & $[8.94,\,9.48]$ & $85.0$ & $0.250$ \\
+\end{longtable}
+\endgroup
+
+\textbf{What this does and does not support.} On the primary cell, TG-IES's backprop- and FLOP-saved advantage over every other method is in the same direction in all 3 seeds for every comparison (hence $p_{\mathrm{sign}}=0.25$, the floor), with CIs entirely on one side of zero; large $d_z$ values ($12$--$470$) reflect small seed-to-seed variability relative to a large, consistent savings effect. The same pattern holds on VGG-16, CIFAR-100 ($d_z=1522.5$, the largest in this table), DenseNet-121, and both ViT-Tiny cells. On ResNet-18(fixed-LR) and Adam, the sign flips as \cref{sec:results,app:adam} report qualitatively, with CIs again excluding zero entirely. Accuracy differences are small ($|\text{mean }\Delta|\le0.87$ points) with CIs mostly straddling zero; the exceptions (Adam vs.\ Baseline, CIFAR-100 vs.\ IES shipped) are real, if small, effects at this sample size. A CI containing zero is not evidence the true difference \emph{is} zero, and a large $d_z$ with $p_{\mathrm{sign}}=0.25$ is not conventionally ``significant'' -- it is the most a 3-seed exact sign test can report regardless of effect size; we do not describe any result here as statistically significant at a threshold this design cannot reach.
+
+\end{document}

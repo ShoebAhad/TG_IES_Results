@@ -1,0 +1,15 @@
+N_instances_used=19387
+T_epochs=100
+detrend=OLS_linear
+sigma_hat=0.014735
+rho_lag0=1.000000 (n_pairs=1938700)
+rho_lag1=-0.024770 (n_pairs=1919313)
+rho_lag2=-0.023472 (n_pairs=1899926)
+rho_lag3=-0.021831 (n_pairs=1880539)
+rho_lag4=-0.023065 (n_pairs=1861152)
+rho_lag5=-0.021449 (n_pairs=1841765)
+95%_null_band=+-0.001444
+naive_var_6sigma2=1.302722e-03
+corrected_var_factor=6.1512
+corrected_var=1.335554e-03
+ratio_corrected_over_naive=1.0252

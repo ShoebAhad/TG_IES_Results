@@ -1,0 +1,17 @@
+=== run_remaining.sh START Tue Aug  4 03:43:44 PM +06 2026 ===
+--- run_adam.sh Tue Aug  4 03:43:44 PM +06 2026 ---
+=== RUN: baseline_cifar10_resnet18_Adam_seed0 Tue Aug  4 03:43:44 PM +06 2026 ===
+=== DONE: baseline_cifar10_resnet18_Adam_seed0 exit=0 Tue Aug  4 03:59:06 PM +06 2026 ===
+=== RUN: ies_shipped_cifar10_resnet18_Adam_seed0 Tue Aug  4 03:59:06 PM +06 2026 ===
+=== DONE: ies_shipped_cifar10_resnet18_Adam_seed0 exit=0 Tue Aug  4 04:10:01 PM +06 2026 ===
+=== RUN: ies_alg1_cifar10_resnet18_Adam_seed0 Tue Aug  4 04:10:01 PM +06 2026 ===
+=== DONE: ies_alg1_cifar10_resnet18_Adam_seed0 exit=0 Tue Aug  4 04:20:48 PM +06 2026 ===
+=== RUN: tgies_cifar10_resnet18_Adam_seed0 Tue Aug  4 04:20:48 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_Adam_seed0 exit=0 Tue Aug  4 04:34:24 PM +06 2026 ===
+RUN_ADAM_ALL_DONE Tue Aug  4 04:34:24 PM +06 2026
+--- run_vgg16_seeds.sh Tue Aug  4 04:34:24 PM +06 2026 ---
+=== RUN: baseline_cifar10_vgg16_SGD_exponential_learning_rate_seed1 Tue Aug  4 04:34:24 PM +06 2026 ===
+=== DONE: baseline_cifar10_vgg16_SGD_exponential_learning_rate_seed1 exit=0 Tue Aug  4 04:47:52 PM +06 2026 ===
+=== RUN: ies_shipped_cifar10_vgg16_SGD_exponential_learning_rate_seed1 Tue Aug  4 04:47:52 PM +06 2026 ===
+=== DONE: ies_shipped_cifar10_vgg16_SGD_exponential_learning_rate_seed1 exit=0 Tue Aug  4 04:59:18 PM +06 2026 ===
+=== RUN: ies_alg1_cifar10_vgg16_SGD_exponential_learning_rate_seed1 Tue Aug  4 04:59:18 PM +06 2026 ===

@@ -1,0 +1,39 @@
+=== batch_size_sweep.py START Thu Sep  3 04:52:13 PM +06 2026 ===
+idle GPU baseline: mem=8 MiB util=0% power=22.8 W
+
+running baseline bs=32 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1036 MiB  mean_util=67.1%  mean_epoch_time=6.85s  backprop_saved(8ep)=0.03%
+running ies_shipped bs=32 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1036 MiB  mean_util=61.2%  mean_epoch_time=7.55s  backprop_saved(8ep)=0.04%
+running tgies bs=32 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1478 MiB  mean_util=58.9%  mean_epoch_time=8.07s  backprop_saved(8ep)=0.13%
+running baseline bs=64 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1158 MiB  mean_util=66.8%  mean_epoch_time=5.34s  backprop_saved(8ep)=0.03%
+running ies_shipped bs=64 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1216 MiB  mean_util=59.1%  mean_epoch_time=6.36s  backprop_saved(8ep)=0.05%
+running tgies bs=64 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1454 MiB  mean_util=51.8%  mean_epoch_time=7.18s  backprop_saved(8ep)=0.13%
+running baseline bs=128 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1566 MiB  mean_util=67.3%  mean_epoch_time=4.81s  backprop_saved(8ep)=0.16%
+running ies_shipped bs=128 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1586 MiB  mean_util=58.4%  mean_epoch_time=5.72s  backprop_saved(8ep)=0.16%
+running tgies bs=128 (8 epochs, recalib_every=5)...
+  peak_mem_delta=1586 MiB  mean_util=47.5%  mean_epoch_time=7.37s  backprop_saved(8ep)=0.16%
+running baseline bs=256 (8 epochs, recalib_every=5)...
+  peak_mem_delta=2432 MiB  mean_util=70.6%  mean_epoch_time=4.90s  backprop_saved(8ep)=0.16%
+running ies_shipped bs=256 (8 epochs, recalib_every=5)...
+  peak_mem_delta=4122 MiB  mean_util=65.1%  mean_epoch_time=5.35s  backprop_saved(8ep)=0.16%
+running tgies bs=256 (8 epochs, recalib_every=5)...
+  peak_mem_delta=4122 MiB  mean_util=52.3%  mean_epoch_time=7.02s  backprop_saved(8ep)=0.29%
+
+Wrote /home/milgpt/Research_implementations/2025_ICLR_IES/results/batch_size_sweep_summary.csv
+=== batch_size_sweep.py DONE Thu Sep  3 05:02:49 PM +06 2026 ===
+=== chaining into run_remaining_items.sh Thu Sep  3 05:02:49 PM +06 2026 ===
+=== run_remaining_items.sh START Thu Sep  3 05:02:49 PM +06 2026 (MAXJOBS=6) ===
+=== LAUNCH: selective_backprop_cifar10_resnet18_SGD_exponential_learning_rate_seed0 Thu Sep  3 05:02:49 PM +06 2026 ===
+=== LAUNCH: selective_backprop_cifar10_resnet18_SGD_exponential_learning_rate_seed1 Thu Sep  3 05:02:49 PM +06 2026 ===
+=== LAUNCH: selective_backprop_cifar10_resnet18_SGD_exponential_learning_rate_seed2 Thu Sep  3 05:02:49 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_reactprobe Thu Sep  3 05:02:49 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_reactprobe Thu Sep  3 05:02:49 PM +06 2026 ===
+=== ITEM_8_11_LAUNCHED Thu Sep  3 05:02:49 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_reactprobe Thu Sep  3 05:02:49 PM +06 2026 ===

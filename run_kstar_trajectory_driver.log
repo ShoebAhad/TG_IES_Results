@@ -1,0 +1,46 @@
+=== run_kstar_trajectory.sh START Thu Sep  3 12:43:13 PM +06 2026 (MAXJOBS=6) ===
+=== LAUNCH: baseline_cifar10_resnet18_SGD_exponential_learning_rate_seed1_traj Thu Sep  3 12:43:13 PM +06 2026 ===
+=== LAUNCH: baseline_cifar10_resnet18_SGD_exponential_learning_rate_seed0_traj Thu Sep  3 12:43:13 PM +06 2026 ===
+=== LAUNCH: baseline_cifar10_resnet18_SGD_exponential_learning_rate_seed2_traj Thu Sep  3 12:43:13 PM +06 2026 ===
+=== DONE: baseline_cifar10_resnet18_SGD_exponential_learning_rate_seed0_traj exit=0 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== DONE: baseline_cifar10_resnet18_SGD_exponential_learning_rate_seed1_traj exit=0 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== DONE: baseline_cifar10_resnet18_SGD_exponential_learning_rate_seed2_traj exit=0 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== PHASE1_BASELINE_TRAJ_DONE Thu Sep  3 01:24:10 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar1 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar1 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar1 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar2 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar2 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar2 Thu Sep  3 01:24:10 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar1 exit=0 Thu Sep  3 02:09:26 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar4 Thu Sep  3 02:09:26 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar1 exit=0 Thu Sep  3 02:09:38 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar4 Thu Sep  3 02:09:38 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar1 exit=0 Thu Sep  3 02:09:45 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar4 Thu Sep  3 02:09:45 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar2 exit=0 Thu Sep  3 02:09:51 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar8 Thu Sep  3 02:09:51 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar2 exit=0 Thu Sep  3 02:09:52 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar8 Thu Sep  3 02:09:52 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar2 exit=0 Thu Sep  3 02:09:52 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar8 Thu Sep  3 02:09:52 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar4 exit=0 Thu Sep  3 02:57:00 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar15 Thu Sep  3 02:57:00 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar4 exit=0 Thu Sep  3 02:57:06 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar15 Thu Sep  3 02:57:06 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar4 exit=0 Thu Sep  3 02:57:21 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar15 Thu Sep  3 02:57:21 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar8 exit=0 Thu Sep  3 02:58:26 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar30 Thu Sep  3 02:58:26 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar8 exit=0 Thu Sep  3 02:58:27 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar30 Thu Sep  3 02:58:27 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar8 exit=0 Thu Sep  3 02:58:35 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar30 Thu Sep  3 02:58:35 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar15 exit=0 Thu Sep  3 03:50:19 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar15 exit=0 Thu Sep  3 03:50:39 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar15 exit=0 Thu Sep  3 03:50:44 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_kstar30 exit=0 Thu Sep  3 03:52:22 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed2_kstar30 exit=0 Thu Sep  3 03:52:23 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed1_kstar30 exit=0 Thu Sep  3 03:52:23 PM +06 2026 ===
+=== PHASE2_KSTAR_SWEEP_DONE Thu Sep  3 03:52:23 PM +06 2026 ===
+=== run_kstar_trajectory.sh ALL_DONE Thu Sep  3 03:52:23 PM +06 2026 ===

@@ -1,0 +1,21 @@
+=== run_remaining_fast.sh START Thu Aug 27 03:08:17 PM +06 2026 (MAXJOBS=3) ===
+########## KEEP: Adam seeds 1-2, all 4 methods ##########
+SKIP (already complete): baseline_cifar10_resnet18_Adam_seed1 Thu Aug 27 03:08:17 PM +06 2026
+=== LAUNCH: ies_alg1_cifar10_resnet18_Adam_seed1 Thu Aug 27 03:08:17 PM +06 2026 ===
+=== LAUNCH: ies_shipped_cifar10_resnet18_Adam_seed1 Thu Aug 27 03:08:17 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_Adam_seed1 Thu Aug 27 03:08:17 PM +06 2026 ===
+=== DONE: ies_alg1_cifar10_resnet18_Adam_seed1 exit=0 Thu Aug 27 03:34:44 PM +06 2026 ===
+=== LAUNCH: baseline_cifar10_resnet18_Adam_seed2 Thu Aug 27 03:34:44 PM +06 2026 ===
+=== DONE: ies_shipped_cifar10_resnet18_Adam_seed1 exit=0 Thu Aug 27 03:35:24 PM +06 2026 ===
+=== LAUNCH: ies_shipped_cifar10_resnet18_Adam_seed2 Thu Aug 27 03:35:24 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_Adam_seed1 exit=0 Thu Aug 27 03:40:04 PM +06 2026 ===
+=== LAUNCH: ies_alg1_cifar10_resnet18_Adam_seed2 Thu Aug 27 03:40:04 PM +06 2026 ===
+=== DONE: ies_shipped_cifar10_resnet18_Adam_seed2 exit=0 Thu Aug 27 04:03:58 PM +06 2026 ===
+=== LAUNCH: tgies_cifar10_resnet18_Adam_seed2 Thu Aug 27 04:03:58 PM +06 2026 ===
+=== DONE: ies_alg1_cifar10_resnet18_Adam_seed2 exit=0 Thu Aug 27 04:07:36 PM +06 2026 ===
+=== DONE: baseline_cifar10_resnet18_Adam_seed2 exit=0 Thu Aug 27 04:10:17 PM +06 2026 ===
+=== DONE: tgies_cifar10_resnet18_Adam_seed2 exit=0 Thu Aug 27 04:20:32 PM +06 2026 ===
+########## KEEP: CIFAR-100 seeds 1-2, all 4 methods ##########
+=== LAUNCH: baseline_cifar100_resnet18_SGD_exponential_learning_rate_seed1 Thu Aug 27 04:20:32 PM +06 2026 ===
+=== LAUNCH: ies_shipped_cifar100_resnet18_SGD_exponential_learning_rate_seed1 Thu Aug 27 04:20:32 PM +06 2026 ===
+=== LAUNCH: ies_alg1_cifar100_resnet18_SGD_exponential_learning_rate_seed1 Thu Aug 27 04:20:32 PM +06 2026 ===

@@ -1,0 +1,32 @@
+=== run_p2_item1_chain.sh START Mon Aug 31 10:11:41 AM +06 2026 ===
+=== run_drift_norms.sh START Mon Aug 31 10:11:41 AM +06 2026 ===
+=== RUN: drift_term_run.py --schedule SGD_exponential_learning_rate Mon Aug 31 10:11:41 AM +06 2026 ===
+=== DONE: drift_term_run.py --schedule SGD_exponential_learning_rate exit=0 Mon Aug 31 10:40:48 AM +06 2026 ===
+=== RUN: drift_term_run.py --schedule SGD_fixed_learning_rate Mon Aug 31 10:40:48 AM +06 2026 ===
+=== run_p2_item1_chain.sh START Mon Aug 31 11:16:47 AM +06 2026 ===
+=== run_drift_norms.sh START Mon Aug 31 11:16:47 AM +06 2026 ===
+SKIP (norms already present): drift_exponential
+=== RUN: drift_term_run.py --schedule SGD_fixed_learning_rate Mon Aug 31 11:16:47 AM +06 2026 ===
+=== DONE: drift_term_run.py --schedule SGD_fixed_learning_rate exit=0 Mon Aug 31 11:45:51 AM +06 2026 ===
+=== RUN: drift_term_run.py --schedule Adam Mon Aug 31 11:45:51 AM +06 2026 ===
+=== DONE: drift_term_run.py --schedule Adam exit=0 Mon Aug 31 12:15:18 PM +06 2026 ===
+RUN_DRIFT_NORMS_ALL_DONE Mon Aug 31 12:15:18 PM +06 2026
+=== run_cifar100_seeds12.sh START Mon Aug 31 12:15:18 PM +06 2026 (MAXJOBS=3) ===
+=== LAUNCH: baseline_cifar100_resnet18_SGD_exponential_learning_rate_seed1 Mon Aug 31 12:15:18 PM +06 2026 ===
+=== LAUNCH: ies_shipped_cifar100_resnet18_SGD_exponential_learning_rate_seed1 Mon Aug 31 12:15:18 PM +06 2026 ===
+=== LAUNCH: ies_alg1_cifar100_resnet18_SGD_exponential_learning_rate_seed1 Mon Aug 31 12:15:18 PM +06 2026 ===
+=== DONE: ies_alg1_cifar100_resnet18_SGD_exponential_learning_rate_seed1 exit=0 Mon Aug 31 12:52:29 PM +06 2026 ===
+=== LAUNCH: tgies_cifar100_resnet18_SGD_exponential_learning_rate_seed1 Mon Aug 31 12:52:29 PM +06 2026 ===
+=== DONE: ies_shipped_cifar100_resnet18_SGD_exponential_learning_rate_seed1 exit=0 Mon Aug 31 12:53:39 PM +06 2026 ===
+=== LAUNCH: baseline_cifar100_resnet18_SGD_exponential_learning_rate_seed2 Mon Aug 31 12:53:39 PM +06 2026 ===
+=== DONE: baseline_cifar100_resnet18_SGD_exponential_learning_rate_seed1 exit=0 Mon Aug 31 12:54:04 PM +06 2026 ===
+=== LAUNCH: ies_shipped_cifar100_resnet18_SGD_exponential_learning_rate_seed2 Mon Aug 31 12:54:04 PM +06 2026 ===
+=== DONE: tgies_cifar100_resnet18_SGD_exponential_learning_rate_seed1 exit=0 Mon Aug 31 01:21:41 PM +06 2026 ===
+=== LAUNCH: ies_alg1_cifar100_resnet18_SGD_exponential_learning_rate_seed2 Mon Aug 31 01:21:41 PM +06 2026 ===
+=== DONE: baseline_cifar100_resnet18_SGD_exponential_learning_rate_seed2 exit=0 Mon Aug 31 01:30:55 PM +06 2026 ===
+=== LAUNCH: tgies_cifar100_resnet18_SGD_exponential_learning_rate_seed2 Mon Aug 31 01:30:55 PM +06 2026 ===
+=== DONE: ies_shipped_cifar100_resnet18_SGD_exponential_learning_rate_seed2 exit=0 Mon Aug 31 01:31:05 PM +06 2026 ===
+=== DONE: ies_alg1_cifar100_resnet18_SGD_exponential_learning_rate_seed2 exit=0 Mon Aug 31 01:48:42 PM +06 2026 ===
+=== DONE: tgies_cifar100_resnet18_SGD_exponential_learning_rate_seed2 exit=0 Mon Aug 31 01:49:39 PM +06 2026 ===
+RUN_CIFAR100_SEEDS12_ALL_DONE Mon Aug 31 01:49:39 PM +06 2026
+P2_ITEM1_CHAIN_ALL_DONE Mon Aug 31 01:49:39 PM +06 2026

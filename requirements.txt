@@ -1,0 +1,6 @@
+# Project requirements for Research_implementations/2025_ICLR_IES
+# Note: For GPU-enabled PyTorch, prefer installing via the official wheels (see setup_venv.sh).
+numpy
+Pillow
+torch    # placeholder: install GPU wheel manually or via setup_venv.sh with INSTALL_TORCH=1
+torchvision
