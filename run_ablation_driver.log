@@ -1,4 +1,0 @@
-SKIP (already complete): tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_ablation_deltaonly
-=== RUN: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_ablation_kstaronly Thu Jul 30 04:09:46 PM +06 2026 ===
-=== DONE: tgies_cifar10_resnet18_SGD_exponential_learning_rate_seed0_ablation_kstaronly exit=0 Thu Jul 30 04:25:44 PM +06 2026 ===
-RUN_ABLATION_ALL_DONE Thu Jul 30 04:25:44 PM +06 2026

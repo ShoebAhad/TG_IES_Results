@@ -1,2 +1,0 @@
-=== RUN: baseline_cifar10_vgg16_SGD_exponential_learning_rate_seed1 Thu Jul 30 12:36:09 PM +06 2026 ===
-=== RUN: baseline_cifar10_vgg16_SGD_exponential_learning_rate_seed1 Thu Jul 30 02:49:57 PM +06 2026 ===

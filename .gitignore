@@ -27,16 +27,19 @@ Theory Guided IES (6).pdf
 # Tool-internal config
 .claude/
 
-# LaTeX build byproducts (regenerate via: tectonic main.tex)
-paper/*.aux
-paper/*.log
-paper/*.blg
-paper/*.bbl
-paper/*.out
-paper/run_*_driver.log
-paper_iclr2026/*.aux
-paper_iclr2026/*.log
-paper_iclr2026/*.blg
-paper_iclr2026/*.bbl
-paper_iclr2026/*.out
-paper_iclr2026/compile*.log
+# Paper source: kept local-only, never pushed to this public repo.
+# paper_iclr2026/ is an anonymous double-blind ICLR submission in progress;
+# publishing it here (under an identified GitHub account) would risk breaking
+# anonymity / dual-submission norms. paper/ is an earlier draft of the same
+# work. EXPERIMENT_LOG.md/NEXT_STEPS.md also reference other venues' review
+# process and are kept private for the same reason.
+paper/
+paper_iclr2026/
+EXPERIMENT_LOG.md
+NEXT_STEPS.md
+README.md
+
+# Driver scripts and run logs: kept local-only (working infra, not artifacts).
+*.sh
+*.log
+logs/

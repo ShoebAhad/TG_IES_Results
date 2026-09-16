@@ -1,8 +1,0 @@
-=== run_densenet_seeds12.sh START Tue Sep  1 03:02:59 PM +06 2026 (MAXJOBS=3) ===
-=== LAUNCH: baseline_cifar10_densenet121_SGD_exponential_learning_rate_seed1 Tue Sep  1 03:02:59 PM +06 2026 ===
-=== LAUNCH: ies_shipped_cifar10_densenet121_SGD_exponential_learning_rate_seed1 Tue Sep  1 03:02:59 PM +06 2026 ===
-=== LAUNCH: ies_alg1_cifar10_densenet121_SGD_exponential_learning_rate_seed1 Tue Sep  1 03:02:59 PM +06 2026 ===
-=== DONE: ies_alg1_cifar10_densenet121_SGD_exponential_learning_rate_seed1 exit=0 Tue Sep  1 04:46:14 PM +06 2026 ===
-=== LAUNCH: tgies_cifar10_densenet121_SGD_exponential_learning_rate_seed1 Tue Sep  1 04:46:14 PM +06 2026 ===
-=== DONE: ies_shipped_cifar10_densenet121_SGD_exponential_learning_rate_seed1 exit=0 Tue Sep  1 04:47:52 PM +06 2026 ===
-=== LAUNCH: baseline_cifar10_densenet121_SGD_exponential_learning_rate_seed2 Tue Sep  1 04:47:52 PM +06 2026 ===
